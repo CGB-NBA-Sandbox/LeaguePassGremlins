@@ -178,6 +178,40 @@ button { font: inherit; color: inherit; }
 .roster .wk { color: var(--muted); font-size: 0.8rem; }
 .roster .season { text-align: right; font-weight: 600; }
 
+/* chat */
+.chat[hidden] { display: none; }
+.chat-list {
+  list-style: none; margin: 0; padding: 12px; display: flex; flex-direction: column; gap: 2px;
+  background: var(--panel); border-radius: 8px; height: min(60vh, 520px); overflow-y: auto;
+}
+.msg { max-width: 82%; align-self: flex-start; margin-top: 10px; }
+.msg.grouped { margin-top: 0; }
+.msg.mine { align-self: flex-end; text-align: right; }
+.msg .meta { display: flex; gap: 8px; align-items: baseline; font-size: 0.78rem; color: var(--muted); margin: 0 4px 2px; }
+.msg.mine .meta { justify-content: flex-end; }
+.msg .who { color: var(--c); font-weight: 700; }
+.bubble {
+  display: inline-block; margin: 0; padding: 7px 12px; border-radius: 14px; text-align: left;
+  background: rgba(255,255,255,0.06); border-left: 3px solid var(--c);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.msg.mine .bubble { border-left: 0; border-right: 3px solid var(--c); background: rgba(227,168,87,0.14); }
+.chat-list .empty, .chat-list .error { margin: auto; text-align: center; }
+.chat-form { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; margin-top: 10px; align-items: end; }
+.chat-form select, .chat-form textarea {
+  font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line);
+  border-radius: 10px; padding: 9px 10px; min-width: 0;
+}
+.chat-form textarea { resize: none; line-height: 1.35; font-size: 16px; }
+.chat-form select:focus, .chat-form textarea:focus { outline: none; border-color: var(--maple); }
+.chat-form button {
+  background: var(--maple); color: var(--court); border: 0; border-radius: 10px;
+  padding: 9px 16px; font-weight: 700; cursor: pointer;
+}
+.chat-form button:disabled { opacity: 0.6; cursor: default; }
+.chat-note { color: var(--loss); font-size: 0.85rem; margin: 6px 0 0; min-height: 1em; }
+.chat code { color: var(--ink); }
+
 .empty, .error, .hint { color: var(--muted); }
 .error { color: var(--loss); }
 .hint { font-size: 0.82rem; margin-top: 10px; }
@@ -192,6 +226,10 @@ button { font: inherit; color: inherit; }
   .team { grid-template-columns: 24px minmax(0, 1fr) auto 32px; gap: 6px; }
   .team img, .team .nologo { width: 24px; height: 24px; }
   .when { min-width: 52px; }
+  .tabs { gap: 0; }
+  .tabs button { padding: 10px 11px; }
+  .chat-form { grid-template-columns: 1fr auto; }
+  .chat-form select { grid-column: 1 / -1; justify-self: start; }
 }
 @media (prefers-reduced-motion: reduce) {
   .bar { transition: none; }

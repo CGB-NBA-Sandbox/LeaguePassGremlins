@@ -43,5 +43,19 @@ window.LEAGUE = {
     { name: "Grant",  color: "#4CC98F", teams: ["Bulls", "Mavericks", "Thunder", "Magic", "Raptors"] },
     { name: "Ben",    color: "#F2708F", teams: ["Cavaliers", "Grizzlies", "Knicks", "76ers", "Nets"] },
     { name: "Devin",  color: "#EAD85A", teams: ["Celtics", "Hornets", "Warriors", "Lakers", "Heat"] }
-  ]
+  ],
+
+  // Group chat (Chat tab). Paste the firebaseConfig values from your Firebase project here.
+  // These keys are meant to be public; the Firestore rules decide what people can do.
+  chat: {
+    room: "2026-27",
+    firebase: {
+      apiKey: "AIzaSyDsWy0O6xMFUzGuXWQ7nkOTtX3M2fx1we4",
+      authDomain: "league-pass-gremlins.firebaseapp.com",
+      projectId: "league-pass-gremlins",
+      storageBucket: "league-pass-gremlins.firebasestorage.app",
+      messagingSenderId: "160603430811",
+      appId: "1:160603430811:web:352f928fa3f56b86e40b3e"
+    }
+  }
 };

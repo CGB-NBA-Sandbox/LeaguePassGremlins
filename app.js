@@ -371,7 +371,12 @@
 
     document.querySelectorAll(".tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === state.tab)));
     const panel = $("#panel");
-    if (state.error && !loaded.length) {
+    const chat = $("#chat");
+    const chatOn = state.tab === "chat" && !!chat;
+    panel.hidden = chatOn;
+    if (chat) chat.hidden = !chatOn;
+    if (chatOn) window.dispatchEvent(new Event("lpg:chat-open"));
+    else if (state.error && !loaded.length) {
       panel.innerHTML = `<p class="error">${esc(state.error)}. Check your connection and tap Refresh.</p>`;
     } else if (state.tab === "games") panel.innerHTML = renderGames(r);
     else if (state.tab === "season") panel.innerHTML = renderSeason(season);
