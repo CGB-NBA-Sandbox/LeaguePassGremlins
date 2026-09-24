@@ -141,6 +141,13 @@ button { font: inherit; color: inherit; }
 .score { text-align: right; font-variant-numeric: tabular-nums; font-size: 1.05rem; }
 .when { color: var(--muted); font-size: 0.82rem; text-align: right; min-width: 64px; }
 .game.in .when { color: var(--ink); font-weight: 600; }
+.odds {
+  grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline;
+  padding-top: 6px; border-top: 1px solid rgba(38,70,115,0.6);
+  font-size: 0.8rem; color: var(--muted); font-variant-numeric: tabular-nums;
+}
+.odds b { color: var(--ink); font-weight: 600; margin-right: 3px; }
+.odds .book { margin-left: auto; font-size: 0.72rem; }
 .chip {
   font-size: 0.74rem; font-weight: 600; padding: 1px 8px; border-radius: 999px;
   color: var(--c); border: 1px solid var(--c); white-space: nowrap;

@@ -73,6 +73,24 @@
     };
   }
 
+  // Betting line from ESPN (usually DraftKings). ESPN only carries it before tip-off.
+  function oddsOf(comp) {
+    const o = (comp.odds || [])[0];
+    if (!o) return null;
+    const ml = (side) => {
+      const x = o.moneyline && o.moneyline[side];
+      return x ? ((x.current || x.close || x.open || {}).odds || null) : null;
+    };
+    const odds = {
+      spread: o.details || null,
+      total: o.overUnder != null ? o.overUnder : null,
+      mlAway: ml("away"),
+      mlHome: ml("home"),
+      book: (o.provider && (o.provider.displayName || o.provider.name)) || ""
+    };
+    return odds.spread || odds.total != null || odds.mlAway || odds.mlHome ? odds : null;
+  }
+
   function normalize(e) {
     const comp = (e.competitions && e.competitions[0]) || {};
     const cs = comp.competitors || [];
@@ -93,6 +111,7 @@
       completed,
       detail: st.shortDetail || st.detail || "",
       notes: (comp.notes || []).map((n) => n.headline || "").join(" "),
+      odds: oddsOf(comp),
       home,
       away
     };
@@ -303,6 +322,16 @@
       </div>`;
   }
 
+  function oddsLine(g) {
+    const o = g.odds;
+    if (g.state !== "pre" || !o) return "";
+    const parts = [];
+    if (o.spread) parts.push(`<span><b>Spread</b> ${esc(o.spread)}</span>`);
+    if (o.total != null) parts.push(`<span><b>O/U</b> ${esc(o.total)}</span>`);
+    if (o.mlAway && o.mlHome) parts.push(`<span><b>ML</b> ${esc(g.away.abbr)} ${esc(o.mlAway)} / ${esc(g.home.abbr)} ${esc(o.mlHome)}</span>`);
+    return parts.length ? `<div class="odds">${parts.join("")}${o.book ? `<span class="book">${esc(o.book)}</span>` : ""}</div>` : "";
+  }
+
   function renderGames(r) {
     if (!r.games.length) {
       return `<p class="empty">${r.started ? "No games found for this week yet. Try Refresh." : "The schedule for this week shows up once it starts."}</p>`;
@@ -317,6 +346,7 @@
             <li class="game ${g.state}${counts(g) ? "" : " skip"}">
               <div class="teams">${teamLine(g.away, g)}${teamLine(g.home, g)}</div>
               <div class="when">${esc(gameTime(g))}${counts(g) ? "" : "<br><small>Not counted</small>"}</div>
+              ${oddsLine(g)}
             </li>`).join("")}
         </ul>
       </section>`).join("");
@@ -392,7 +422,7 @@
     const games = cupGames();
     const by = (k) => games.filter((g) => cupRound(g) === k);
     const card = (g) => g
-      ? `<div class="game match ${g.state}"><div class="teams">${teamLine(g.away, g)}${teamLine(g.home, g)}</div><div class="when">${esc(gameTime(g))}</div></div>`
+      ? `<div class="game match ${g.state}"><div class="teams">${teamLine(g.away, g)}${teamLine(g.home, g)}</div><div class="when">${esc(gameTime(g))}</div>${oddsLine(g)}</div>`
       : `<div class="game match tbd"><p>TBD</p></div>`;
     const pad = (list, n) => [...list, ...Array(Math.max(0, n - list.length)).fill(null)].slice(0, n);
 
