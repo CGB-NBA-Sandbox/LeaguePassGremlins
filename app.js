@@ -20,6 +20,7 @@
   const longDay = (s) => parseYMD(s).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric", timeZone: "UTC" });
   const pctStr = (p) => (p == null ? "–" : (p * 100).toFixed(1) + "%");
   const money = (n) => "$" + (Number.isInteger(n) ? n : n.toFixed(2));
+  const weeksStr = (n) => String(Math.round(n * 100) / 100);
   const today = () => etYMD(new Date());
 
   // ---------- owners & teams ----------
@@ -170,8 +171,9 @@
       r.rows.forEach((x) => { tot[x.name].w += x.w; tot[x.name].l += x.l; });
       Object.entries(r.teams).forEach(([k, v]) => { const tr = teams[k] || (teams[k] = { w: 0, l: 0 }); tr.w += v.w; tr.l += v.l; });
       if (r.complete && r.leaders.length) {
+        // A tied week is shared: two-way ties are half a week won each, same as the pot.
         const share = C.weeklyPot / r.leaders.length;
-        r.leaders.forEach((n) => { tot[n].weeksWon++; tot[n].earned += share; });
+        r.leaders.forEach((n) => { tot[n].weeksWon += 1 / r.leaders.length; tot[n].earned += share; });
       }
     }
     const rows = Object.values(tot).map((r) => ({ ...r, pct: r.w + r.l ? r.w / (r.w + r.l) : null }));
@@ -179,10 +181,37 @@
     const best = Math.max(-1, ...rows.map((r) => (r.pct == null ? -1 : r.pct)));
     const leaders = best < 0 ? [] : rows.filter((r) => r.pct != null && Math.abs(r.pct - best) < 1e-9).map((r) => r.name);
     if (over && leaders.length && C.seasonPrize) leaders.forEach((n) => { tot[n].earned += C.seasonPrize / leaders.length; });
-    if (C.cupChampion && C.cupPrize && tot[C.cupChampion]) tot[C.cupChampion].earned += C.cupPrize;
+    const cupOwner = C.cupChampion || cupResult().owner;
+    if (cupOwner && C.cupPrize && tot[cupOwner]) tot[cupOwner].earned += C.cupPrize;
     rows.forEach((r) => { r.earned = tot[r.name].earned; });
     rows.sort((a, b) => (b.pct ?? -1) - (a.pct ?? -1) || b.earned - a.earned);
-    return { rows, teams, leaders, over };
+    return { rows, teams, leaders, over, cupOwner };
+  }
+
+  // ---------- NBA Cup ----------
+  const EAST = new Set(["Celtics", "Nets", "Knicks", "76ers", "Raptors", "Bulls", "Cavaliers", "Pistons",
+    "Pacers", "Bucks", "Hawks", "Hornets", "Heat", "Magic", "Wizards"]);
+  const cupRound = (g) => {
+    if (!/cup/i.test(g.notes)) return null;
+    if (/quarter/i.test(g.notes)) return "qf";
+    if (/semi/i.test(g.notes)) return "sf";
+    if (/(championship|final)/i.test(g.notes)) return "final";
+    return /group/i.test(g.notes) ? "group" : null;
+  };
+  const isEast = (g) => [g.home, g.away].some((s) => s && EAST.has(s.name));
+  const winnerOf = (g) => (decided(g) ? (g.home.winner ? g.home : g.away) : null);
+
+  function cupGames() {
+    const seen = new Set();
+    return Object.values(state.games).flat()
+      .filter((g) => cupRound(g) && !seen.has(g.id) && seen.add(g.id))
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  function cupResult() {
+    const f = cupGames().find((g) => cupRound(g) === "final");
+    const w = f && winnerOf(f);
+    return { final: f || null, team: w ? w.name : null, owner: w ? w.owner : null };
   }
 
   // ---------- state ----------
@@ -300,7 +329,7 @@
         <td class="name"><span class="dot"></span>${esc(x.name)}</td>
         <td>${x.w}-${x.l}</td>
         <td class="num strong">${pctStr(x.pct)}</td>
-        <td class="num">${x.weeksWon}</td>
+        <td class="num">${weeksStr(x.weeksWon)}</td>
         <td class="num">${money(x.earned)}</td>
       </tr>`).join("");
     const lead = s.leaders.length ? s.leaders.join(" and ") : "Nobody yet";
@@ -312,7 +341,8 @@
       <div class="prizes">
         <p><strong>${s.over ? "Season champion" : "Season race"}:</strong> ${esc(lead)}${s.over ? ` takes ${money(C.seasonPrize)}` : `, playing for ${money(C.seasonPrize)}`}.</p>
         <p><strong>Weekly pot:</strong> ${money(C.weeklyPot)} to the best win % each week, split on ties.</p>
-        ${C.cupChampion ? `<p><strong>NBA Cup:</strong> ${esc(C.cupChampion)} owns the champion${C.cupPrize ? ` (${money(C.cupPrize)})` : ""}.</p>` : ""}
+        ${s.cupOwner ? `<p><strong>NBA Cup:</strong> ${esc(s.cupOwner)} owns the champion${C.cupPrize ? ` (${money(C.cupPrize)})` : ""}.</p>` : ""}
+        <p><strong>Ties:</strong> owners tied for a week's best win % split it, so a two-way tie is half a week won each.</p>
       </div>`;
   }
 
@@ -325,7 +355,7 @@
         const top = r.leaders.includes(o.name) && x.pct != null;
         return `<td class="num${top ? " top" : ""}" style="--c:${esc(o.color)}">${pctStr(x.pct)}</td>`;
       }).join("");
-      const winner = r.complete ? (r.leaders.join(", ") || "None") : "In progress";
+      const winner = r.complete ? (r.leaders.join(", ") + (r.leaders.length > 1 ? " (tie)" : "") || "None") : "In progress";
       const paid = C.paid && C.paid[n] ? `<span class="paid">Paid</span>` : r.complete && r.leaders.length ? `<span class="owed">Owed</span>` : "";
       return `<tr class="clickable" data-week="${n}"><td class="wk">Week ${n}</td>${cells}<td>${esc(winner)}</td><td class="num">${r.complete && r.leaders.length ? money(C.weeklyPot) : ""}</td><td>${paid}</td></tr>`;
     }).join("");
@@ -358,6 +388,51 @@
     <p class="hint">Season record on the right, selected week in the middle.</p>`;
   }
 
+  function renderCup() {
+    const games = cupGames();
+    const by = (k) => games.filter((g) => cupRound(g) === k);
+    const card = (g) => g
+      ? `<div class="game match ${g.state}"><div class="teams">${teamLine(g.away, g)}${teamLine(g.home, g)}</div><div class="when">${esc(gameTime(g))}</div></div>`
+      : `<div class="game match tbd"><p>TBD</p></div>`;
+    const pad = (list, n) => [...list, ...Array(Math.max(0, n - list.length)).fill(null)].slice(0, n);
+
+    // group play: each owner's record across their teams' Cup group games
+    const group = by("group");
+    const rec = Object.fromEntries(owners.map((o) => [o.name, { w: 0, l: 0 }]));
+    group.filter(decided).forEach((g) => [g.home, g.away].forEach((s) => {
+      if (s && s.owner) s.winner ? rec[s.owner].w++ : rec[s.owner].l++;
+    }));
+    const groupRows = owners
+      .map((o) => ({ o, ...rec[o.name] }))
+      .sort((a, b) => (b.w / (b.w + b.l || 1)) - (a.w / (a.w + a.l || 1)) || b.w - a.w)
+      .map((x) => `<tr style="--c:${esc(x.o.color)}"><td class="name"><span class="dot"></span>${esc(x.o.name)}</td><td class="num">${x.w}-${x.l}</td><td class="num strong">${pctStr(x.w + x.l ? x.w / (x.w + x.l) : null)}</td></tr>`)
+      .join("");
+    const groupTable = group.length ? `
+      <h3 class="cup-h">Group play by owner</h3>
+      <div class="scroll"><table class="tbl"><thead><tr><th>Owner</th><th class="num">Record</th><th class="num">Win %</th></tr></thead><tbody>${groupRows}</tbody></table></div>` : "";
+
+    const qf = by("qf"), sf = by("sf"), fin = by("final")[0];
+    if (!qf.length) {
+      return `<p class="empty">${group.length
+        ? "The knockout bracket fills in once group play wraps up and the quarterfinals are set in early December."
+        : "NBA Cup group play starts in November. Group records and the knockout bracket show up here once it does."}</p>${groupTable}`;
+    }
+
+    const champ = cupResult();
+    const banner = champ.team
+      ? `<p class="cup-champ">${esc(champ.team)} win the NBA Cup${champ.owner ? ` ${chip(champ.owner)}` : ""}</p>` : "";
+    const side = (list, label, n) => `<div class="side"><p class="conf">${label}</p>${pad(list, n).map(card).join("")}</div>`;
+    return `
+      ${banner}
+      <div class="bracket">
+        <section class="round"><h3>Quarterfinals</h3>${side(qf.filter(isEast), "East", 2)}${side(qf.filter((g) => !isEast(g)), "West", 2)}</section>
+        <section class="round"><h3>Semifinals</h3>${side(sf.filter(isEast), "East", 1)}${side(sf.filter((g) => !isEast(g)), "West", 1)}</section>
+        <section class="round final"><h3>Championship</h3><div class="side">${card(fin)}</div></section>
+      </div>
+      <p class="hint">The championship game doesn't count toward weekly or season standings.</p>
+      ${groupTable}`;
+  }
+
   function render() {
     const loaded = weeks.filter((w) => state.games[w.n]);
     const results = loaded.map((w) => computeWeek(w, state.games[w.n]));
@@ -381,6 +456,7 @@
     } else if (state.tab === "games") panel.innerHTML = renderGames(r);
     else if (state.tab === "season") panel.innerHTML = renderSeason(season);
     else if (state.tab === "weeks") panel.innerHTML = renderWeeks(results);
+    else if (state.tab === "cup") panel.innerHTML = renderCup();
     else panel.innerHTML = renderTeams(season, r);
 
     panel.querySelectorAll("tr[data-week]").forEach((tr) => {
