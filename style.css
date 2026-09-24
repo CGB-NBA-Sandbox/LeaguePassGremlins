@@ -32,6 +32,9 @@ button { font: inherit; color: inherit; }
 .top { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; padding-top: 20px; padding-bottom: 12px; }
 .brand h1 { font: 900 clamp(2rem, 7vw, 3.1rem)/0.95 var(--display); margin: 0; letter-spacing: 0.01em; }
 .brand p { margin: 6px 0 0; color: var(--muted); font-size: 0.9rem; }
+.brand .seasons { margin-top: 4px; font-size: 0.85rem; }
+.seasons a { color: var(--maple); text-decoration: none; font-weight: 600; }
+.seasons a:hover { text-decoration: underline; }
 #refreshBtn {
   background: transparent; border: 1px solid var(--line); border-radius: 999px;
   padding: 7px 16px; font-weight: 600; font-size: 0.9rem; cursor: pointer; white-space: nowrap;

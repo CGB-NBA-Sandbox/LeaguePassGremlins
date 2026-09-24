@@ -5,17 +5,17 @@
 */
 window.LEAGUE = {
   name: "League Pass Gremlins",
-  season: "2025-26",
+  season: "2026-27",
 
   // Regular season window (ET dates). Weeks run Monday to Sunday; week 1 starts opening night.
-  seasonStart: "2025-10-21",
-  seasonEnd: "2026-04-12",
+  seasonStart: "2026-10-20",
+  seasonEnd: "2027-04-11",
 
   // Weeks that get combined into one scoring week (few games in each half).
   // Each start must be a Monday and each end a Sunday. Delete an entry to score normally.
   mergedWeeks: [
-    { start: "2025-12-01", end: "2025-12-14", note: "NBA Cup knockout rounds, two weeks" },
-    { start: "2026-02-09", end: "2026-02-22", note: "All-Star break, two weeks" }
+    { start: "2026-11-30", end: "2026-12-13", note: "NBA Cup knockout rounds, two weeks" },
+    { start: "2027-02-15", end: "2027-02-28", note: "All-Star break, two weeks" }
   ],
 
   // Money
