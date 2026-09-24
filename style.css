@@ -157,10 +157,10 @@ button { font: inherit; color: inherit; }
 .tbl .rank { color: var(--muted); width: 1%; }
 .tbl .name { font-weight: 600; }
 .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--c); margin-right: 8px; vertical-align: 1px; }
-.weeks td.top { color: var(--court); background: var(--c); font-weight: 700; }
+.weeks td.best { color: var(--court); background: var(--c); font-weight: 700; }
 .weeks .wk { font-weight: 600; }
 .clickable { cursor: pointer; }
-.clickable:hover td:not(.top) { background: rgba(255,255,255,0.04); }
+.clickable:hover td:not(.best) { background: rgba(255,255,255,0.04); }
 .paid { color: var(--win); font-weight: 600; }
 .owed { color: var(--maple); font-weight: 600; }
 .prizes { margin-top: 14px; color: var(--muted); font-size: 0.92rem; }

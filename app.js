@@ -353,7 +353,7 @@
       const cells = owners.map((o) => {
         const x = r.rows.find((y) => y.name === o.name);
         const top = r.leaders.includes(o.name) && x.pct != null;
-        return `<td class="num${top ? " top" : ""}" style="--c:${esc(o.color)}">${pctStr(x.pct)}</td>`;
+        return `<td class="num${top ? " best" : ""}" style="--c:${esc(o.color)}">${pctStr(x.pct)}</td>`;
       }).join("");
       const winner = r.complete ? (r.leaders.join(", ") + (r.leaders.length > 1 ? " (tie)" : "") || "None") : "In progress";
       const paid = C.paid && C.paid[n] ? `<span class="paid">Paid</span>` : r.complete && r.leaders.length ? `<span class="owed">Owed</span>` : "";
