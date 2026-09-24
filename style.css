@@ -197,18 +197,26 @@ button { font: inherit; color: inherit; }
 }
 .msg.mine .bubble { border-left: 0; border-right: 3px solid var(--c); background: rgba(227,168,87,0.14); }
 .chat-list .empty, .chat-list .error { margin: auto; text-align: center; }
-.chat-form { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; margin-top: 10px; align-items: end; }
-.chat-form select, .chat-form textarea {
+.chat-form { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-top: 10px; align-items: end; }
+.chat-form select, .chat-form textarea, .gate-row select, .gate-row input {
   font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line);
   border-radius: 10px; padding: 9px 10px; min-width: 0;
 }
 .chat-form textarea { resize: none; line-height: 1.35; font-size: 16px; }
-.chat-form select:focus, .chat-form textarea:focus { outline: none; border-color: var(--maple); }
-.chat-form button {
+.chat-form select:focus, .chat-form textarea:focus, .gate-row select:focus, .gate-row input:focus { outline: none; border-color: var(--maple); }
+.chat-form button, .gate-row button {
   background: var(--maple); color: var(--court); border: 0; border-radius: 10px;
   padding: 9px 16px; font-weight: 700; cursor: pointer;
 }
-.chat-form button:disabled { opacity: 0.6; cursor: default; }
+.chat-form button:disabled, .gate-row button:disabled { opacity: 0.6; cursor: default; }
+.chat-gate { background: var(--panel); border-radius: 8px; padding: 18px 16px; }
+.chat-gate > p:first-child { margin: 0 0 10px; }
+.gate-row { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; }
+.gate-row input { font-size: 16px; background: var(--court); }
+.gate-row select { background: var(--court); }
+.chat-me { color: var(--muted); font-size: 0.85rem; margin: 2px 0 0; }
+.chat-me .who { color: var(--c); font-weight: 700; margin-right: 8px; }
+.linkish { background: none; border: 0; padding: 0; color: var(--muted); text-decoration: underline; cursor: pointer; font-size: inherit; }
 .chat-note { color: var(--loss); font-size: 0.85rem; margin: 6px 0 0; min-height: 1em; }
 .chat code { color: var(--ink); }
 
@@ -228,8 +236,8 @@ button { font: inherit; color: inherit; }
   .when { min-width: 52px; }
   .tabs { gap: 0; }
   .tabs button { padding: 10px 11px; }
-  .chat-form { grid-template-columns: 1fr auto; }
-  .chat-form select { grid-column: 1 / -1; justify-self: start; }
+  .gate-row { grid-template-columns: 1fr auto; }
+  .gate-row select { grid-column: 1 / -1; justify-self: start; }
 }
 @media (prefers-reduced-motion: reduce) {
   .bar { transition: none; }

@@ -49,6 +49,8 @@ window.LEAGUE = {
   // These keys are meant to be public; the Firestore rules decide what people can do.
   chat: {
     room: "2026-27",
+    // Each owner's chat login is <name>@loginDomain, created in Firebase > Authentication.
+    loginDomain: "lpg.example.com",
     firebase: {
       apiKey: "AIzaSyDsWy0O6xMFUzGuXWQ7nkOTtX3M2fx1we4",
       authDomain: "league-pass-gremlins.firebaseapp.com",
