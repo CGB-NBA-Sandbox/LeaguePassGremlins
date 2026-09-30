@@ -125,6 +125,10 @@ button { font: inherit; color: inherit; }
 /* games */
 .day h3 { font: 700 1.15rem/1.2 var(--display); letter-spacing: 0.02em; margin: 18px 0 8px; color: var(--muted); }
 .day:first-child h3 { margin-top: 4px; }
+.earlier {
+  font: 700 0.8rem/1 var(--body); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted);
+  margin: 28px 0 0; padding-top: 14px; border-top: 1px solid var(--line);
+}
 .games { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .game {
   display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 12px;
@@ -195,6 +199,18 @@ button { font: inherit; color: inherit; }
 .roster img, .roster .nologo { width: 26px; height: 26px; object-fit: contain; }
 .roster .wk { color: var(--muted); font-size: 0.8rem; }
 .roster .season { text-align: right; font-weight: 600; }
+
+/* opening-night countdown */
+.countdown { text-align: center; margin: 6px 0 16px; }
+.cd-units { display: flex; justify-content: center; gap: 10px; }
+.cd-unit {
+  display: flex; flex-direction: column; align-items: center; min-width: 84px;
+  padding: 10px 8px 8px; border-radius: 10px; background: rgba(255,255,255,0.06);
+  border-top: 3px solid var(--maple);
+}
+.cd-unit b { font: 900 clamp(2.4rem, 11vw, 3.4rem)/1 var(--display); font-variant-numeric: tabular-nums; }
+.cd-unit small { margin-top: 4px; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.cd-label { margin: 10px 0 0; color: var(--muted); font-size: 0.9rem; }
 
 /* NBA Cup */
 .bracket { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }

@@ -277,6 +277,51 @@
     return `${left} game${left === 1 ? "" : "s"} left this week`;
   }
 
+  // ---------- opening-night countdown ----------
+  // Counts down to the first regular-season tip from ESPN's schedule (7 PM ET on opening day until it loads).
+  function firstTip() {
+    const g = Object.values(state.games).flat()
+      .filter((x) => counts(x) && x.day >= C.seasonStart)
+      .sort((a, b) => a.date.localeCompare(b.date))[0] || null;
+    return { g, at: g ? new Date(g.date) : new Date(`${C.seasonStart}T23:00:00Z`) };
+  }
+
+  function countdownParts(ms) {
+    const m = Math.max(0, Math.floor(ms / 60e3));
+    return { d: Math.floor(m / 1440), h: Math.floor((m % 1440) / 60), m: m % 60 };
+  }
+
+  function countdownHTML() {
+    const { g, at } = firstTip();
+    const ms = at - Date.now();
+    if (ms <= 0) return "";
+    const p = countdownParts(ms);
+    const when = at.toLocaleString("en-US", { weekday: "long", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: TZ });
+    const label = g
+      ? `until ${esc(g.away.name)} at ${esc(g.home.name)}${g.tv && g.tv.length ? ` on ${esc(g.tv.join(" / "))}` : ""}, ${esc(when)} ET`
+      : `until opening night, ${esc(longDay(C.seasonStart))}`;
+    const unit = (k, n, word) => `<span class="cd-unit"><b data-u="${k}">${k === "d" ? n : String(n).padStart(2, "0")}</b><small data-w="${k}">${word}${n === 1 ? "" : "s"}</small></span>`;
+    return `
+      <div class="countdown" data-at="${at.toISOString()}">
+        <div class="cd-units">${unit("d", p.d, "day")}${unit("h", p.h, "hour")}${unit("m", p.m, "minute")}</div>
+        <p class="cd-label">${label}</p>
+      </div>`;
+  }
+
+  function tickCountdown() {
+    const el = document.querySelector(".countdown");
+    if (!el) return;
+    const ms = new Date(el.dataset.at) - Date.now();
+    if (ms <= 0) { render(); load(); return; }
+    const p = countdownParts(ms);
+    const words = { d: "day", h: "hour", m: "minute" };
+    Object.entries(p).forEach(([k, n]) => {
+      el.querySelector(`[data-u="${k}"]`).textContent = k === "d" ? n : String(n).padStart(2, "0");
+      el.querySelector(`[data-w="${k}"]`).textContent = words[k] + (n === 1 ? "" : "s");
+    });
+  }
+  setInterval(tickCountdown, 5e3);
+
   function renderRace(r) {
     const w = r.week;
     const i = weeks.indexOf(w);
@@ -307,7 +352,7 @@
         </div>
         <button class="nav" id="nextWeek" aria-label="Next week" ${i >= maxIdx ? "disabled" : ""}>›</button>
       </div>
-      <p class="status${r.live ? " live" : ""}">${esc(weekStatus(r))}</p>
+      ${countdownHTML() || `<p class="status${r.live ? " live" : ""}">${esc(weekStatus(r))}</p>`}
       <ol class="lanes">${bars}</ol>
       <p class="axis"><span>0%</span><span>50%</span><span>100%</span></p>`;
 
@@ -353,9 +398,14 @@
     }
     const byDay = {};
     r.games.forEach((g) => (byDay[g.day] = byDay[g.day] || []).push(g));
-    return Object.entries(byDay).map(([day, gs]) => `
+    const t = today();
+    let days = Object.entries(byDay);
+    // In the current week, lead with today and what's next; finished days drop below, newest first.
+    const past = t >= r.week.start && t <= r.week.end ? days.filter(([d]) => d < t).reverse() : [];
+    if (past.length) days = days.filter(([d]) => d >= t);
+    const section = ([day, gs]) => `
       <section class="day">
-        <h3>${longDay(day)}${day === today() ? " (today)" : ""}</h3>
+        <h3>${longDay(day)}${day === t ? " (today)" : ""}</h3>
         <ul class="games">
           ${gs.map((g) => `
             <li class="game ${g.state}${counts(g) ? "" : " skip"}">
@@ -364,7 +414,9 @@
               ${oddsLine(g)}
             </li>`).join("")}
         </ul>
-      </section>`).join("");
+      </section>`;
+    const upcoming = days.length ? days.map(section).join("") : `<p class="empty">No more games this week.</p>`;
+    return upcoming + (past.length ? `<h2 class="earlier">Earlier this week</h2>${past.map(section).join("")}` : "");
   }
 
   function renderSeason(s) {
@@ -535,9 +587,14 @@
     render();
 
     clearTimeout(timer);
+    // Poll fast while games are live, a bit slower around tip-off, and slowly otherwise.
     const cur = weeks[currentIndex()];
-    const live = (state.games[cur.n] || []).some((g) => g.state === "in");
-    timer = setTimeout(() => { if (!document.hidden) load(); }, live ? 60e3 : 10 * 60e3);
+    const gs = state.games[cur.n] || [];
+    const now = Date.now();
+    const live = gs.some((g) => g.state === "in");
+    const nearTip = gs.some((g) => g.state === "pre" && Math.abs(new Date(g.date) - now) < 15 * 60e3);
+    const wait = live ? 30e3 : nearTip ? 60e3 : 10 * 60e3;
+    timer = setTimeout(() => { if (!document.hidden) load(); }, wait);
   }
 
   // ---------- init ----------
