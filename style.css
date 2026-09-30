@@ -141,6 +141,17 @@ button { font: inherit; color: inherit; }
 .score { text-align: right; font-variant-numeric: tabular-nums; font-size: 1.05rem; }
 .when { color: var(--muted); font-size: 0.82rem; text-align: right; min-width: 64px; }
 .game.in .when { color: var(--ink); font-weight: 600; }
+.team .tname { display: flex; align-items: baseline; min-width: 0; }
+.team .tname .nm { overflow: hidden; text-overflow: ellipsis; }
+.ha {
+  flex-shrink: 0; margin-left: 6px; font-size: 0.68rem; font-weight: 600; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--muted);
+}
+.tv {
+  display: block; width: fit-content; margin: 4px 0 0 auto; padding: 1px 7px; border-radius: 4px;
+  background: rgba(255,255,255,0.08); color: var(--ink); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.03em;
+}
+.game.match .tv { margin-left: 0; }
 .odds {
   grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: baseline;
   padding-top: 6px; border-top: 1px solid rgba(38,70,115,0.6);

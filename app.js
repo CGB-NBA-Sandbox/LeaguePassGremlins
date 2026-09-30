@@ -4,7 +4,7 @@
   const C = window.LEAGUE;
   const API = "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard";
   const TZ = "America/New_York";
-  const CACHE = `lpg:${C.season}:v1:`;
+  const CACHE = `lpg:${C.season}:v3:`;
 
   // ---------- helpers ----------
   const $ = (s) => document.querySelector(s);
@@ -91,6 +91,16 @@
     return odds.spread || odds.total != null || odds.mlAway || odds.mlHome ? odds : null;
   }
 
+  // National TV and streaming only (NBC, ESPN, Prime Video...); local channels and radio are skipped.
+  function nationalTV(comp) {
+    const geo = comp.geoBroadcasts || [];
+    const names = geo.length
+      ? geo.filter((b) => /national/i.test((b.market && b.market.type) || "") && /^(tv|streaming)$/i.test((b.type && b.type.shortName) || ""))
+          .map((b) => (b.media && b.media.shortName) || "")
+      : (comp.broadcasts || []).filter((b) => /national/i.test(b.market || "")).flatMap((b) => b.names || []);
+    return [...new Set(names.map((n) => n.trim()).filter(Boolean))];
+  }
+
   function normalize(e) {
     const comp = (e.competitions && e.competitions[0]) || {};
     const cs = comp.competitors || [];
@@ -112,6 +122,8 @@
       detail: st.shortDetail || st.detail || "",
       notes: (comp.notes || []).map((n) => n.headline || "").join(" "),
       odds: oddsOf(comp),
+      tv: nationalTV(comp),
+      neutral: comp.neutralSite === true,
       home,
       away
     };
@@ -311,12 +323,15 @@
     return g.detail || (g.completed ? "Final" : "");
   }
 
+  const tvTag = (g) => (g.tv && g.tv.length ? `<span class="tv">${g.tv.map(esc).join(" · ")}</span>` : "");
+
   function teamLine(s, g) {
     const won = decided(g) && s.winner;
+    const role = g.neutral ? "" : `<small class="ha">${s === g.home ? "Home" : "Away"}</small>`;
     return `
       <div class="team${won ? " win" : ""}${decided(g) && !s.winner ? " loss" : ""}">
         ${s.logo ? `<img src="${esc(s.logo)}" alt="" width="28" height="28" loading="lazy">` : `<span class="nologo"></span>`}
-        <span class="tname">${esc(s.name)}</span>
+        <span class="tname"><span class="nm">${esc(s.name)}</span>${role}</span>
         ${chip(s.owner)}
         <span class="score">${g.state === "pre" || s.score == null ? "" : s.score}</span>
       </div>`;
@@ -345,7 +360,7 @@
           ${gs.map((g) => `
             <li class="game ${g.state}${counts(g) ? "" : " skip"}">
               <div class="teams">${teamLine(g.away, g)}${teamLine(g.home, g)}</div>
-              <div class="when">${esc(gameTime(g))}${counts(g) ? "" : "<br><small>Not counted</small>"}</div>
+              <div class="when">${esc(gameTime(g))}${tvTag(g)}${counts(g) ? "" : "<br><small>Not counted</small>"}</div>
               ${oddsLine(g)}
             </li>`).join("")}
         </ul>
@@ -422,7 +437,7 @@
     const games = cupGames();
     const by = (k) => games.filter((g) => cupRound(g) === k);
     const card = (g) => g
-      ? `<div class="game match ${g.state}"><div class="teams">${teamLine(g.away, g)}${teamLine(g.home, g)}</div><div class="when">${esc(gameTime(g))}</div>${oddsLine(g)}</div>`
+      ? `<div class="game match ${g.state}"><div class="teams">${teamLine(g.away, g)}${teamLine(g.home, g)}</div><div class="when">${esc(gameTime(g))}${tvTag(g)}</div>${oddsLine(g)}</div>`
       : `<div class="game match tbd"><p>TBD</p></div>`;
     const pad = (list, n) => [...list, ...Array(Math.max(0, n - list.length)).fill(null)].slice(0, n);
 
