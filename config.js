@@ -37,12 +37,12 @@ window.LEAGUE = {
   // Owners and their teams. Use team nicknames exactly as shown.
   // PLACEHOLDER: these are last season's assignments. Replace after this year's draft.
   owners: [
-    { name: "Cole",   color: "#5AB0F0", teams: ["Nuggets", "Rockets", "Clippers", "Wizards", "Spurs"] },
-    { name: "Joe",    color: "#F59E4C", teams: ["Bucks", "Pacers", "Pelicans", "Trail Blazers", "Kings"] },
-    { name: "Blaine", color: "#A594FF", teams: ["Hawks", "Pistons", "Timberwolves", "Suns", "Jazz"] },
-    { name: "Grant",  color: "#4CC98F", teams: ["Bulls", "Mavericks", "Thunder", "Magic", "Raptors"] },
-    { name: "Ben",    color: "#F2708F", teams: ["Cavaliers", "Grizzlies", "Knicks", "76ers", "Nets"] },
-    { name: "Devin",  color: "#EAD85A", teams: ["Celtics", "Hornets", "Warriors", "Lakers", "Heat"] }
+    { name: "Cole",   color: "#5AB0F0", teams: ["Nuggets", "Rockets", "Nets", "Grizzlies", "Spurs"] },
+    { name: "Joe",    color: "#F59E4C", teams: ["Kings", "Pacers", "Pelicans", "Trail Blazers", "Warriors"] },
+    { name: "Blaine", color: "#A594FF", teams: ["Bulls", "Pistons", "Timberwolves", "Suns", "Jazz"] },
+    { name: "Grant",  color: "#4CC98F", teams: ["Hornets", "Mavericks", "Thunder", "Magic", "Raptors"] },
+    { name: "Ben",    color: "#F2708F", teams: ["Cavaliers", "Hawks", "Knicks", "76ers", "Clippers"] },
+    { name: "Devin",  color: "#EAD85A", teams: ["Celtics", "Wizards", "Bucks", "Lakers", "Heat"] }
   ],
 
   // Group chat (Chat tab). Paste the firebaseConfig values from your Firebase project here.
