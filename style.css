@@ -212,6 +212,23 @@ button { font: inherit; color: inherit; }
 .cd-unit small { margin-top: 4px; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
 .cd-label { margin: 10px 0 0; color: var(--muted); font-size: 0.9rem; }
 
+/* win totals */
+.tbl .pos { color: var(--win); }
+.tbl .neg { color: var(--loss); }
+.tbl small { color: var(--muted); }
+.ou-teams .name { display: flex; align-items: center; gap: 10px; }
+.ou-teams .name > span { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.ou-teams .chip { font-size: 0.68rem; }
+.ou-teams img { width: 22px; height: 22px; object-fit: contain; }
+.ou { font-weight: 700; font-size: 0.82rem; }
+.ou.over { color: var(--win); }
+.ou.under { color: var(--loss); }
+.ou.push, .ou.none { color: var(--muted); }
+.live-dot {
+  display: inline-block; width: 7px; height: 7px; margin-left: 7px; border-radius: 50%;
+  background: var(--loss); vertical-align: 2px; animation: pulse 1.6s infinite;
+}
+
 /* NBA Cup */
 .bracket { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
 .round { display: flex; flex-direction: column; gap: 10px; }

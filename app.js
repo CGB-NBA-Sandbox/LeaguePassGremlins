@@ -137,7 +137,14 @@
 
   async function fetchWeekGames(w) {
     const key = `${CACHE}${w.start}_${w.end}`;
-    try { const c = localStorage.getItem(key); if (c) return JSON.parse(c); } catch (e) { /* storage unavailable */ }
+    try {
+      const c = localStorage.getItem(key);
+      if (c) {
+        const cached = JSON.parse(c);
+        cached.forEach((g) => [g.home, g.away].forEach((s) => { if (s && s.label && s.logo) logos[s.label] = s.logo; }));
+        return cached;
+      }
+    } catch (e) { /* storage unavailable */ }
 
     let games = null;
     const span = dayList(w.start, w.end);
@@ -485,6 +492,99 @@
     <p class="hint">Season record on the right, selected week in the middle.</p>`;
   }
 
+  // ---------- win totals (O/U tab) ----------
+  // Each team's wins are compared with its preseason over/under, prorated to games played:
+  // +/- = wins - line x (games played / 82). Owners are ranked by the sum across their teams.
+  const SEASON_GAMES = 82;
+  const signed = (n, d = 1) => (n > 0 ? "+" : n < 0 ? "−" : "") + Math.abs(n).toFixed(d);
+
+  function teamRecords() {
+    const rec = {};
+    const seen = new Set();
+    Object.values(state.games).flat().forEach((g) => {
+      if (seen.has(g.id) || !counts(g) || !decided(g)) return;
+      seen.add(g.id);
+      [g.home, g.away].forEach((s) => {
+        if (s.label && s.logo) logos[s.label] = s.logo;
+        const r = rec[s.name] || (rec[s.name] = { w: 0, l: 0 });
+        s.winner ? r.w++ : r.l++;
+      });
+    });
+    return rec;
+  }
+
+  function renderOU() {
+    const lines = C.winTotals || {};
+    const missing = owners.flatMap((o) => o.teams).filter((t) => typeof lines[t] !== "number");
+    if (missing.length === teamIndex.length) {
+      return `<p class="empty">Add each team's preseason win total to <code>winTotals</code> in config.js and this scorecard fills in.</p>`;
+    }
+    const rec = teamRecords();
+    const playing = new Set(Object.values(state.games).flat().filter((g) => g.state === "in").flatMap((g) => [g.home.name, g.away.name]));
+    const teams = teamIndex.map((t) => {
+      const r = rec[t.label] || { w: 0, l: 0 };
+      const line = typeof lines[t.label] === "number" ? lines[t.label] : null;
+      const gp = r.w + r.l;
+      const diff = line == null ? null : r.w - line * gp / SEASON_GAMES;
+      const pace = gp ? r.w / gp * SEASON_GAMES : null;
+      return { ...t, ...r, gp, line, diff, pace, live: playing.has(t.label) };
+    });
+
+    const board = owners.map((o) => {
+      const ts = teams.filter((t) => t.owner === o.name);
+      const priced = ts.filter((t) => t.line != null);
+      return {
+        o,
+        w: ts.reduce((a, t) => a + t.w, 0),
+        l: ts.reduce((a, t) => a + t.l, 0),
+        diff: priced.reduce((a, t) => a + t.diff, 0),
+        line: priced.reduce((a, t) => a + t.line, 0),
+        pace: priced.reduce((a, t) => a + (t.pace ?? t.line), 0),
+        overs: priced.filter((t) => t.gp && t.pace > t.line).length,
+        unders: priced.filter((t) => t.gp && t.pace < t.line).length,
+        live: ts.some((t) => t.live)
+      };
+    }).sort((a, b) => b.diff - a.diff || b.w - a.w || a.o.name.localeCompare(b.o.name));
+
+    const cls = (n) => (n > 0.05 ? "pos" : n < -0.05 ? "neg" : "");
+    const liveDot = (on) => (on ? `<span class="live-dot" title="Playing now"></span>` : "");
+    const boardRows = board.map((x, i) => `
+      <tr style="--c:${esc(x.o.color)}">
+        <td class="rank">${i + 1}</td>
+        <td class="name"><span class="dot"></span>${esc(x.o.name)}${liveDot(x.live)}</td>
+        <td class="num strong ${cls(x.diff)}">${signed(x.diff)}</td>
+        <td class="num">${x.w}-${x.l}</td>
+        <td class="num">${x.pace.toFixed(1)} <small>/ ${x.line.toFixed(1)}</small></td>
+        <td class="num"><span class="pos">${x.overs}</span>–<span class="neg">${x.unders}</span></td>
+      </tr>`).join("");
+
+    const teamRows = [...teams].sort((a, b) => (b.diff ?? -1e9) - (a.diff ?? -1e9) || (b.pace ?? 0) - (a.pace ?? 0)).map((t) => {
+      const o = ownerByName[t.owner];
+      const status = t.line == null ? "No line" : !t.gp ? "–" : t.pace > t.line ? "Over" : t.pace < t.line ? "Under" : "Push";
+      return `
+        <tr>
+          <td class="name">${logos[t.label] ? `<img src="${esc(logos[t.label])}" alt="" width="22" height="22" loading="lazy">` : ""}<span><span class="tn">${esc(t.label)}${liveDot(t.live)}</span>${chip(t.owner)}</span></td>
+          <td class="num strong ${t.diff == null ? "" : cls(t.diff)}">${t.diff == null ? "–" : signed(t.diff)}</td>
+          <td class="num">${t.w}-${t.l}</td>
+          <td class="num">${t.line ?? "–"}</td>
+          <td class="num">${t.pace == null ? "–" : t.pace.toFixed(1)}</td>
+          <td class="ou ${t.line == null ? "none" : status.toLowerCase()}">${status}</td>
+        </tr>`;
+    }).join("");
+
+    return `
+      <div class="scroll"><table class="tbl ou-board">
+        <thead><tr><th></th><th>Owner</th><th class="num">+/- line</th><th class="num">Record</th><th class="num">Pace / line</th><th class="num">Over–Under</th></tr></thead>
+        <tbody>${boardRows}</tbody>
+      </table></div>
+      <p class="hint"><strong>+/- line</strong> is wins compared with where each team's over/under says it should be after the games it has played, added up across an owner's five teams. <strong>Pace</strong> is the 82-game win total at the current rate.${missing.length ? ` Missing lines: ${esc(missing.join(", "))}.` : ""}${C.winTotalsSource ? ` Lines: ${esc(C.winTotalsSource)}.` : ""}</p>
+      <h3 class="cup-h">Every team</h3>
+      <div class="scroll"><table class="tbl ou-teams">
+        <thead><tr><th>Team</th><th class="num">+/-</th><th class="num">Record</th><th class="num">Line</th><th class="num">Pace</th><th>On pace</th></tr></thead>
+        <tbody>${teamRows}</tbody>
+      </table></div>`;
+  }
+
   function renderCup() {
     const games = cupGames();
     const by = (k) => games.filter((g) => cupRound(g) === k);
@@ -554,6 +654,7 @@
     else if (state.tab === "season") panel.innerHTML = renderSeason(season);
     else if (state.tab === "weeks") panel.innerHTML = renderWeeks(results);
     else if (state.tab === "cup") panel.innerHTML = renderCup();
+    else if (state.tab === "ou") panel.innerHTML = renderOU();
     else panel.innerHTML = renderTeams(season, r);
 
     panel.querySelectorAll("tr[data-week]").forEach((tr) => {

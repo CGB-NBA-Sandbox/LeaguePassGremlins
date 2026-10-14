@@ -34,8 +34,7 @@ window.LEAGUE = {
     // 1: true,
   },
 
-  // Owners and their teams. Use team nicknames exactly as shown.
-  // PLACEHOLDER: these are last season's assignments. Replace after this year's draft.
+  // Owners and their teams (2026-27 draft). Use team nicknames exactly as shown.
   owners: [
     { name: "Cole",   color: "#5AB0F0", teams: ["Nuggets", "Rockets", "Nets", "Grizzlies", "Spurs"] },
     { name: "Joe",    color: "#F59E4C", teams: ["Kings", "Pacers", "Pelicans", "Trail Blazers", "Warriors"] },
@@ -44,6 +43,17 @@ window.LEAGUE = {
     { name: "Ben",    color: "#F2708F", teams: ["Cavaliers", "Hawks", "Knicks", "76ers", "Clippers"] },
     { name: "Devin",  color: "#EAD85A", teams: ["Celtics", "Wizards", "Bucks", "Lakers", "Heat"] }
   ],
+
+  // Preseason win-total over/unders (O/U tab). Fill in each team's line from your sportsbook.
+  winTotalsSource: "",   // e.g. "DraftKings, Oct 14"
+  winTotals: {
+    "76ers": null, "Bucks": null, "Bulls": null, "Cavaliers": null, "Celtics": null,
+    "Clippers": null, "Grizzlies": null, "Hawks": null, "Heat": null, "Hornets": null,
+    "Jazz": null, "Kings": null, "Knicks": null, "Lakers": null, "Magic": null,
+    "Mavericks": null, "Nets": null, "Nuggets": null, "Pacers": null, "Pelicans": null,
+    "Pistons": null, "Raptors": null, "Rockets": null, "Spurs": null, "Suns": null,
+    "Thunder": null, "Timberwolves": null, "Trail Blazers": null, "Warriors": null, "Wizards": null
+  },
 
   // Group chat (Chat tab). Paste the firebaseConfig values from your Firebase project here.
   // These keys are meant to be public; the Firestore rules decide what people can do.
