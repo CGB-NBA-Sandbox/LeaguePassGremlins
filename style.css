@@ -229,6 +229,14 @@ button { font: inherit; color: inherit; }
   background: var(--loss); vertical-align: 2px; animation: pulse 1.6s infinite;
 }
 
+/* season projection */
+.proj-teams .name { display: flex; align-items: center; gap: 10px; }
+.proj-teams .name > span { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.proj-teams img { width: 22px; height: 22px; object-fit: contain; }
+.proj-teams .chip { font-size: 0.68rem; }
+
+@media (max-width: 560px) { .proj-board .xs, .proj-teams .xs { display: none; } }
+
 /* NBA Cup */
 .bracket { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
 .round { display: flex; flex-direction: column; gap: 10px; }

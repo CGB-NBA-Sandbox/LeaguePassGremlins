@@ -585,6 +585,102 @@
       </table></div>`;
   }
 
+  // ---------- season projection (Proj tab) ----------
+  // Projected final wins = wins so far + expected wins over the games still to play.
+  //  - A team's rest-of-season win rate starts at its locked preseason line / 82 and drifts toward
+  //    its actual record as games pile up (the line counts like PRIOR_GAMES games of evidence).
+  //  - For upcoming games that ESPN already has a moneyline on, the de-vigged market probability
+  //    is used for that game instead, so injuries and matchups show up as the odds move.
+  const PRIOR_GAMES = Number(C.projectionPriorGames) || 25;
+  const LEAGUE_AVG_WINS = 41;
+  const americanProb = (s) => {
+    if (s == null) return null;
+    const t = String(s).trim().replace("−", "-");
+    const o = /^even$/i.test(t) ? 100 : parseFloat(t);
+    if (!isFinite(o) || o === 0) return null;
+    return o < 0 ? -o / (-o + 100) : 100 / (o + 100);
+  };
+
+  function projections() {
+    const lines = C.winTotals || {};
+    const rec = teamRecords();
+    const upcoming = {};   // team label -> win probabilities for scheduled games with a live moneyline
+    let oddsGames = 0;
+    const seen = new Set();
+    Object.values(state.games).flat().forEach((g) => {
+      if (seen.has(g.id)) return;
+      seen.add(g.id);
+      if (g.state !== "pre" || !counts(g) || !g.odds) return;
+      const pa = americanProb(g.odds.mlAway), ph = americanProb(g.odds.mlHome);
+      if (pa == null || ph == null) return;
+      oddsGames++;
+      [[g.away, pa / (pa + ph)], [g.home, ph / (pa + ph)]].forEach(([s, p]) => {
+        if (s && s.label) (upcoming[s.label] = upcoming[s.label] || []).push(p);
+      });
+    });
+
+    const teams = teamIndex.map((t) => {
+      const r = rec[t.label] || { w: 0, l: 0 };
+      const gp = r.w + r.l;
+      const hasLine = typeof lines[t.label] === "number";
+      const line = hasLine ? lines[t.label] : LEAGUE_AVG_WINS;
+      const rest = Math.max(0, SEASON_GAMES - gp);
+      const pRest = (PRIOR_GAMES * line / SEASON_GAMES + r.w) / (PRIOR_GAMES + gp);
+      const ups = (upcoming[t.label] || []).slice(0, rest);
+      const proj = r.w + ups.reduce((a, p) => a + p, 0) + (rest - ups.length) * pRest;
+      return { ...t, ...r, gp, line, hasLine, proj, rest, oddsN: ups.length };
+    });
+
+    const board = owners.map((o) => {
+      const ts = teams.filter((t) => t.owner === o.name);
+      const total = ts.length * SEASON_GAMES;
+      const proj = ts.reduce((a, t) => a + t.proj, 0);
+      const w = ts.reduce((a, t) => a + t.w, 0), l = ts.reduce((a, t) => a + t.l, 0);
+      return { o, proj, total, pct: proj / total, w, l, now: w + l ? w / (w + l) : null, lines: ts.reduce((a, t) => a + t.line, 0) };
+    }).sort((a, b) => b.proj - a.proj || a.o.name.localeCompare(b.o.name));
+
+    return { teams, board, oddsGames };
+  }
+
+  function renderProj() {
+    const { teams, board, oddsGames } = projections();
+    const lead = board[0].proj;
+    const cls = (n) => (n > 0.05 ? "pos" : n < -0.05 ? "neg" : "");
+    const rows = board.map((x, i) => `
+      <tr style="--c:${esc(x.o.color)}">
+        <td class="rank">${i + 1}</td>
+        <td class="name"><span class="dot"></span>${esc(x.o.name)}</td>
+        <td class="num strong">${x.proj.toFixed(1)}</td>
+        <td class="num strong">${pctStr(x.pct)}</td>
+        <td class="num">${x.w}-${x.l}</td>
+        <td class="num xs ${cls(x.proj - x.lines)}">${signed(x.proj - x.lines)}</td>
+        <td class="num xs ${i === 0 ? "" : "neg"}">${i === 0 ? "–" : signed(x.proj - lead)}</td>
+      </tr>`).join("");
+
+    const teamRows = [...teams].sort((a, b) => b.proj - a.proj).map((t) => `
+      <tr>
+        <td class="name">${logos[t.label] ? `<img src="${esc(logos[t.label])}" alt="" width="22" height="22" loading="lazy">` : ""}<span><span class="tn">${esc(t.label)}</span>${chip(t.owner)}</span></td>
+        <td class="num strong">${t.proj.toFixed(1)}</td>
+        <td class="num">${t.w}-${t.l}</td>
+        <td class="num xs">${t.hasLine ? t.line : "–"}</td>
+        <td class="num ${cls(t.proj - t.line)}">${t.hasLine ? signed(t.proj - t.line) : "–"}</td>
+      </tr>`).join("");
+
+    return `
+      <div class="scroll"><table class="tbl proj-board">
+        <thead><tr><th></th><th>Owner</th><th class="num">Proj wins</th><th class="num">Win %</th><th class="num">Now</th><th class="num xs">vs lines</th><th class="num xs">Behind</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+      <p class="hint"><strong>Proj wins</strong> is each owner's projected 82-game total across their five teams (out of ${board[0].total}); <strong>Win %</strong> is that total divided by ${board[0].total}. <strong>vs lines</strong> compares it with the sum of their teams' preseason win totals.</p>
+      <h3 class="cup-h">How it's calculated</h3>
+      <p class="hint">Each team starts at its locked preseason win total${C.winTotalsSource ? ` (${esc(C.winTotalsSource)})` : ""} and shifts toward its actual record as games are played. Games ESPN already has a moneyline for use that market's win probability instead${oddsGames ? ` (${oddsGames} games right now)` : " (none posted yet; odds usually appear a few days ahead)"}. It refreshes whenever scores do.</p>
+      <h3 class="cup-h">Every team</h3>
+      <div class="scroll"><table class="tbl proj-teams">
+        <thead><tr><th>Team</th><th class="num">Proj wins</th><th class="num">Record</th><th class="num xs">Line</th><th class="num">vs line</th></tr></thead>
+        <tbody>${teamRows}</tbody>
+      </table></div>`;
+  }
+
   function renderCup() {
     const games = cupGames();
     const by = (k) => games.filter((g) => cupRound(g) === k);
@@ -655,6 +751,7 @@
     else if (state.tab === "weeks") panel.innerHTML = renderWeeks(results);
     else if (state.tab === "cup") panel.innerHTML = renderCup();
     else if (state.tab === "ou") panel.innerHTML = renderOU();
+    else if (state.tab === "proj") panel.innerHTML = renderProj();
     else panel.innerHTML = renderTeams(season, r);
 
     panel.querySelectorAll("tr[data-week]").forEach((tr) => {
@@ -711,6 +808,6 @@
   });
 
   // expose for testing
-  window.__lpg = { buildWeeks, computeWeek, computeSeason, normalize, state };
+  window.__lpg = { buildWeeks, computeWeek, computeSeason, normalize, state, projections };
   load();
 })();
