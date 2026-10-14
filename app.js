@@ -303,14 +303,14 @@
     const ms = at - Date.now();
     if (ms <= 0) return "";
     const p = countdownParts(ms);
-    const when = at.toLocaleString("en-US", { weekday: "long", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: TZ });
+    const when = at.toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: TZ });
     const label = g
-      ? `until ${esc(g.away.name)} at ${esc(g.home.name)}${g.tv && g.tv.length ? ` on ${esc(g.tv.join(" / "))}` : ""}, ${esc(when)} ET`
-      : `until opening night, ${esc(longDay(C.seasonStart))}`;
-    const unit = (k, n, word) => `<span class="cd-unit"><b data-u="${k}">${k === "d" ? n : String(n).padStart(2, "0")}</b><small data-w="${k}">${word}${n === 1 ? "" : "s"}</small></span>`;
+      ? `${esc(g.away.name)} at ${esc(g.home.name)}${g.tv && g.tv.length ? ` · ${esc(g.tv.join(" / "))}` : ""} · ${esc(when)} ET`
+      : `Opening night · ${esc(longDay(C.seasonStart))}`;
+    const unit = (k, n) => `<span class="cd-unit"><b data-u="${k}">${n}</b><small>${k}</small></span>`;
     return `
       <div class="countdown" data-at="${at.toISOString()}">
-        <div class="cd-units">${unit("d", p.d, "day")}${unit("h", p.h, "hour")}${unit("m", p.m, "minute")}</div>
+        <div class="cd-row"><span class="cd-lead">Tips off in</span><span class="cd-units">${unit("d", p.d)}${unit("h", p.h)}${unit("m", p.m)}</span></div>
         <p class="cd-label">${label}</p>
       </div>`;
   }
@@ -321,13 +321,17 @@
     const ms = new Date(el.dataset.at) - Date.now();
     if (ms <= 0) { render(); load(); return; }
     const p = countdownParts(ms);
-    const words = { d: "day", h: "hour", m: "minute" };
-    Object.entries(p).forEach(([k, n]) => {
-      el.querySelector(`[data-u="${k}"]`).textContent = k === "d" ? n : String(n).padStart(2, "0");
-      el.querySelector(`[data-w="${k}"]`).textContent = words[k] + (n === 1 ? "" : "s");
-    });
+    Object.entries(p).forEach(([k, n]) => { el.querySelector(`[data-u="${k}"]`).textContent = n; });
   }
   setInterval(tickCountdown, 5e3);
+
+  // The week panel starts open on wide screens and collapsed on phones; a tap on the chevron is remembered.
+  const RACE_KEY = "lpg:race";
+  const raceOpen = () => {
+    let v = null;
+    try { v = localStorage.getItem(RACE_KEY); } catch (e) { /* storage unavailable */ }
+    return v ? v === "open" : window.matchMedia("(min-width: 641px)").matches;
+  };
 
   function renderRace(r) {
     const w = r.week;
@@ -350,21 +354,36 @@
         </li>`;
     }).join("");
 
+    // Before the first tip-off, a small countdown replaces the (all 0-0) standings.
+    const cd = countdownHTML();
+    if (cd) { $("#race").innerHTML = cd; return; }
+
+    const open = raceOpen();
+    const top = rows.find((x) => x.pct != null);
+    const leadTxt = r.leaders.length && top
+      ? `<span class="lead-txt"><b>${esc(r.leaders.join(" & "))}</b> ${r.leaders.length > 1 ? "lead" : "leads"} · ${top.w}-${top.l} · ${pctStr(top.pct)}</span>`
+      : `<span class="lead-txt">No games played yet</span>`;
+
     $("#race").innerHTML = `
       <div class="race-head">
-        <button class="nav" id="prevWeek" aria-label="Previous week" ${i <= 0 ? "disabled" : ""}>‹</button>
+        <button class="nav" id="prevWeek" type="button" aria-label="Previous week" ${i <= 0 ? "disabled" : ""}>‹</button>
         <div class="race-title">
           <h2>Week ${w.n}</h2>
-          <p>${shortDate(w.start)} to ${shortDate(w.end)}${w.note ? `<span class="note">${esc(w.note)}</span>` : ""}</p>
+          <span class="dates">${shortDate(w.start)}–${shortDate(w.end)}</span>
+          ${w.note ? `<span class="note">${esc(w.note)}</span>` : ""}
         </div>
-        <button class="nav" id="nextWeek" aria-label="Next week" ${i >= maxIdx ? "disabled" : ""}>›</button>
+        <button class="nav" id="nextWeek" type="button" aria-label="Next week" ${i >= maxIdx ? "disabled" : ""}>›</button>
+        <button class="nav toggle" id="raceToggle" type="button" aria-expanded="${open}" aria-label="${open ? "Hide" : "Show"} owner standings"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
       </div>
-      ${countdownHTML() || `<p class="status${r.live ? " live" : ""}">${esc(weekStatus(r))}</p>`}
-      <ol class="lanes">${bars}</ol>
-      <p class="axis"><span>0%</span><span>50%</span><span>100%</span></p>`;
+      <p class="race-sum">${open ? "" : leadTxt}<span class="status${r.live ? " live" : ""}">${esc(weekStatus(r))}</span></p>
+      <ol class="lanes"${open ? "" : " hidden"}>${bars}</ol>`;
 
     $("#prevWeek").onclick = () => { state.sel = weeks[i - 1].n; render(); };
     $("#nextWeek").onclick = () => { state.sel = weeks[i + 1].n; render(); };
+    $("#raceToggle").onclick = () => {
+      try { localStorage.setItem(RACE_KEY, open ? "closed" : "open"); } catch (e) { /* storage unavailable */ }
+      render();
+    };
   }
 
   function gameTime(g) {
@@ -735,6 +754,8 @@
     const selWeek = weeks.find((w) => w.n === state.sel) || weeks[0];
     const r = results.find((x) => x.week === selWeek) || computeWeek(selWeek, []);
 
+    // The live week panel only belongs on the Games tab.
+    $("#race").hidden = state.tab !== "games";
     renderRace(r);
 
     document.querySelectorAll("[data-tab]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === state.tab)));
@@ -803,7 +824,7 @@
   // ---------- init ----------
   document.title = C.name;
   $("#leagueName").textContent = C.name;
-  $("#seasonLine").textContent = `${C.season} season, ${owners.length} owners, ${teamIndex.length} teams`;
+  $("#seasonLine").innerHTML = `${esc(C.season)} season<span class="xs">, ${owners.length} owners, ${teamIndex.length} teams</span>`;
   // Tabs: top row on wide screens, bottom bar (with a More sheet) on phones.
   const sheet = $("#moreSheet");
   const closeSheet = () => {
