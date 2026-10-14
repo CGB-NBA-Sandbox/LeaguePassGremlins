@@ -43,5 +43,17 @@ window.LEAGUE = {
     { name: "Grant",  color: "#4CC98F", teams: ["Bulls", "Mavericks", "Thunder", "Magic", "Raptors"] },
     { name: "Ben",    color: "#F2708F", teams: ["Cavaliers", "Grizzlies", "Knicks", "76ers", "Nets"] },
     { name: "Devin",  color: "#EAD85A", teams: ["Celtics", "Hornets", "Warriors", "Lakers", "Heat"] }
-  ]
+  ],
+
+  // Preseason win-total over/unders (O/U tab), 2025-26. Fixed snapshot, not FanDuel:
+  // lines as listed by Basketball-Reference (sportsoddshistory.com).
+  winTotalsSource: "Basketball-Reference / sportsoddshistory.com preseason lines (not FanDuel)",
+  winTotals: {
+    "76ers": 43.5, "Bucks": 43.5, "Bulls": 33.5, "Cavaliers": 56.5, "Celtics": 41.5,
+    "Clippers": 49.5, "Grizzlies": 39.5, "Hawks": 46.5, "Heat": 37.5, "Hornets": 27.5,
+    "Jazz": 18.5, "Kings": 35.5, "Knicks": 53.5, "Lakers": 46.5, "Magic": 51.5,
+    "Mavericks": 41.5, "Nets": 19.5, "Nuggets": 53.5, "Pacers": 37.5, "Pelicans": 30.5,
+    "Pistons": 46.5, "Raptors": 39.5, "Rockets": 52.5, "Spurs": 44.5, "Suns": 30.5,
+    "Thunder": 62.5, "Timberwolves": 49.5, "Trail Blazers": 35.5, "Warriors": 47.5, "Wizards": 20.5
+  }
 };
