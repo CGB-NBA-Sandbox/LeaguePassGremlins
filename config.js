@@ -44,15 +44,16 @@ window.LEAGUE = {
     { name: "Devin",  color: "#EAD85A", teams: ["Celtics", "Wizards", "Bucks", "Lakers", "Heat"] }
   ],
 
-  // Preseason win-total over/unders (O/U tab). Fill in each team's line from your sportsbook.
-  winTotalsSource: "",   // e.g. "DraftKings, Oct 14"
+  // Preseason win-total over/unders (O/U tab). LOCKED at the start of the season: these are a
+  // fixed snapshot and do not follow the sportsbooks. Don't change them after opening night.
+  winTotalsSource: "BetMGM preseason lines (draft - confirm before Oct 20)",
   winTotals: {
-    "76ers": null, "Bucks": null, "Bulls": null, "Cavaliers": null, "Celtics": null,
-    "Clippers": null, "Grizzlies": null, "Hawks": null, "Heat": null, "Hornets": null,
-    "Jazz": null, "Kings": null, "Knicks": null, "Lakers": null, "Magic": null,
-    "Mavericks": null, "Nets": null, "Nuggets": null, "Pacers": null, "Pelicans": null,
-    "Pistons": null, "Raptors": null, "Rockets": null, "Spurs": null, "Suns": null,
-    "Thunder": null, "Timberwolves": null, "Trail Blazers": null, "Warriors": null, "Wizards": null
+    "76ers": 50.5, "Bucks": 26.5, "Bulls": 27.5, "Cavaliers": 47.5, "Celtics": 51.5,
+    "Clippers": 30.5, "Grizzlies": 28.5, "Hawks": 43.5, "Heat": 46.5, "Hornets": 37.5,
+    "Jazz": 35.5, "Kings": 21.5, "Knicks": 52.5, "Lakers": 46.5, "Magic": 43.5,
+    "Mavericks": 34.5, "Nets": 24.5, "Nuggets": 49.5, "Pacers": 44.5, "Pelicans": 27.5,
+    "Pistons": 50.5, "Raptors": 45.5, "Rockets": 47.5, "Spurs": 59.5, "Suns": 40.5,
+    "Thunder": 60.5, "Timberwolves": 48.5, "Trail Blazers": 43.5, "Warriors": 40.5, "Wizards": 35.5
   },
 
   // Group chat (Chat tab). Paste the firebaseConfig values from your Firebase project here.
