@@ -737,7 +737,12 @@
 
     renderRace(r);
 
-    document.querySelectorAll(".tabs button").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === state.tab)));
+    document.querySelectorAll("[data-tab]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.tab === state.tab)));
+    const moreBtn = $("#moreBtn");
+    if (moreBtn) {
+      const inMore = [...document.querySelectorAll("#moreSheet [data-tab]")].some((b) => b.dataset.tab === state.tab);
+      moreBtn.setAttribute("aria-selected", String(inMore));
+    }
     const panel = $("#panel");
     const chat = $("#chat");
     const chatOn = state.tab === "chat" && !!chat;
@@ -799,9 +804,30 @@
   document.title = C.name;
   $("#leagueName").textContent = C.name;
   $("#seasonLine").textContent = `${C.season} season, ${owners.length} owners, ${teamIndex.length} teams`;
-  document.querySelectorAll(".tabs button").forEach((b) => {
-    b.onclick = () => { state.tab = b.dataset.tab; render(); };
+  // Tabs: top row on wide screens, bottom bar (with a More sheet) on phones.
+  const sheet = $("#moreSheet");
+  const closeSheet = () => {
+    if (!sheet) return;
+    sheet.hidden = true;
+    const mb = $("#moreBtn");
+    if (mb) mb.setAttribute("aria-expanded", "false");
+  };
+  document.querySelectorAll("[data-tab]").forEach((b) => {
+    b.onclick = () => {
+      state.tab = b.dataset.tab;
+      closeSheet();
+      render();
+      if (b.closest(".bottombar, .sheet")) window.scrollTo({ top: 0 });
+    };
   });
+  if (sheet) {
+    $("#moreBtn").onclick = () => {
+      sheet.hidden = !sheet.hidden;
+      $("#moreBtn").setAttribute("aria-expanded", String(!sheet.hidden));
+    };
+    sheet.querySelector(".sheet-back").onclick = closeSheet;
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeSheet(); });
+  }
   $("#refreshBtn").onclick = load;
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden && state.updated && Date.now() - state.updated > 60e3) load();

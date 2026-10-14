@@ -229,6 +229,39 @@ button { font: inherit; color: inherit; }
   background: var(--loss); vertical-align: 2px; animation: pulse 1.6s infinite;
 }
 
+/* phone navigation: bottom bar + More sheet (wide screens keep the top tabs) */
+.bottombar, .sheet { display: none; }
+@media (max-width: 640px) {
+  .tabs { display: none; }
+  body { padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
+  .bottombar {
+    display: flex; position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+    background: var(--court); border-top: 1px solid var(--line);
+    padding: 6px 4px calc(6px + env(safe-area-inset-bottom, 0px));
+  }
+  .bottombar button {
+    flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 2px;
+    background: none; border: 0; padding: 6px 0 2px; cursor: pointer;
+    color: var(--muted); font-size: 0.7rem; font-weight: 600;
+  }
+  .bottombar svg { width: 24px; height: 24px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .bottombar svg .fill { fill: currentColor; stroke: none; }
+  .bottombar button[aria-selected="true"] { color: var(--maple); }
+  .sheet { display: block; position: fixed; inset: 0; z-index: 30; }
+  .sheet[hidden] { display: none; }
+  .sheet-back { position: absolute; inset: 0; background: rgba(5, 12, 28, 0.6); }
+  .sheet-panel {
+    position: absolute; left: 12px; right: 12px; bottom: calc(76px + env(safe-area-inset-bottom, 0px));
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 12px;
+  }
+  .sheet-panel button {
+    background: rgba(255, 255, 255, 0.05); border: 0; border-radius: 10px; padding: 14px 8px;
+    color: var(--ink); font-weight: 600; font-size: 1rem; cursor: pointer;
+  }
+  .sheet-panel button[aria-selected="true"] { background: var(--maple); color: var(--court); }
+}
+
 /* season projection */
 .proj-teams .name { display: flex; align-items: center; gap: 10px; }
 .proj-teams .name > span { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
