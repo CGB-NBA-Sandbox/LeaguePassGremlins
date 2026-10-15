@@ -19,6 +19,7 @@
   const TZ = "America/New_York";
   const WHO_KEY = "lpg:bets:who";
   const GAMES = 82;
+  const MAX_LEGS = 10;
   const { esc, chip, owners } = L;
   const ownerByName = Object.fromEntries(owners.map((o) => [o.name, o]));
   const teams = [...L.teamIndex].sort((a, b) => a.label.localeCompare(b.label));
@@ -76,7 +77,9 @@
       },
       add: (bet) => fs.addDoc(col, { ...bet, createdAt: fs.serverTimestamp() }),
       remove: (id) => fs.deleteDoc(fs.doc(col, id)),
-      setStatus: (id, status) => fs.updateDoc(fs.doc(col, id), { status })
+      setStatus: (id, status) => fs.updateDoc(fs.doc(col, id), { status }),
+      // Parlay legs are never edited; each "something else" leg's result is kept in legStatus.
+      setLegStatus: (id, leg, status) => fs.updateDoc(fs.doc(col, id), { [`legStatus.${leg}`]: status })
     };
   }
 
@@ -107,7 +110,9 @@
 
   // ---------- postseason data (standings + playoff games), loaded only when a futures bet exists ----------
   const POST = { std: null, games: [], loadedAt: 0, loading: false, error: "" };
-  const needsPost = () => L.today() >= C.seasonStart && bets.some((b) => b.type === "future" && b.kind !== "cup");
+  // Futures can sit inside a parlay too, so look at every leg.
+  const allPicks = () => bets.flatMap((b) => (b.type === "parlay" ? b.legs || [] : [b]));
+  const needsPost = () => L.today() >= C.seasonStart && allPicks().some((b) => b.type === "future" && b.kind !== "cup");
 
   function parseStandings(j) {
     const by = {};
@@ -298,8 +303,37 @@
     return R("open", "Pending", "", "neutral");
   }
 
+  // A parlay wins only if every leg wins. One lost leg loses it right away, a pushed leg drops out,
+  // and "something else" legs take their result from the buttons on the card (legStatus).
+  function evalParlay(b, ctx) {
+    const legs = (b.legs || []).map((leg, i) => {
+      const lb = { ...leg, owner: b.owner, status: (b.legStatus || {})[i] };
+      return { b: lb, ev: evaluate(lb, ctx), i };
+    });
+    const n = legs.length;
+    const lost = legs.filter((l) => l.ev.state === "lost");
+    const won = legs.filter((l) => l.ev.state === "won");
+    const push = legs.filter((l) => l.ev.state === "push");
+    const open = legs.filter((l) => l.ev.state === "open");
+    const base = { legs };
+    if (lost.length) return { ...R("lost", "Lost", `Leg ${lost[0].i + 1} lost · ${describe(lost[0].b).title}`, "bad"), ...base };
+    if (!open.length) {
+      if (!won.length) return { ...R("push", "Push", "Every leg pushed", "neutral"), ...base };
+      const note = push.length ? `${push.length} leg${push.length === 1 ? "" : "s"} pushed, so your sportsbook may pay less than the original odds` : "";
+      const text = push.length ? (won.length === 1 ? "The other leg won" : `All ${won.length} remaining legs won`) : `All ${won.length} legs won`;
+      return { ...R("won", "Won", text, "good"), ...base, note };
+    }
+    const risk = open.filter((l) => l.ev.lean === "bad").length;
+    const live = open.some((l) => l.ev.live);
+    const lean = risk ? "bad" : open.every((l) => l.ev.lean === "good") ? "good" : "neutral";
+    const label = risk ? "At risk" : lean === "good" ? "On track" : "Pending";
+    const detail = `${won.length} of ${n} legs won${push.length ? ` · ${push.length} pushed` : ""} · ${open.length} to go${risk ? ` · ${risk} behind` : ""}`;
+    return { ...R("open", label, detail, lean, null, live), ...base };
+  }
+
   function evaluate(b, ctx) {
     try {
+      if (b.type === "parlay") return evalParlay(b, ctx);
       if (b.type === "wintotal") return evalWinTotal(b, ctx);
       if (b.type === "game") return evalGame(b);
       if (b.type === "future") return evalFuture(b, ctx);
@@ -316,6 +350,7 @@
     playoffs: "to make the playoffs", division: "to win their division", title: "to win the NBA title", cup: "to win the NBA Cup"
   };
   function describe(b) {
+    if (b.type === "parlay") { const n = (b.legs || []).length; return { title: `${n}-leg parlay`, sub: "Every leg has to win" }; }
     if (b.type === "wintotal") return { title: `${b.team} ${b.side} ${b.line} wins`, sub: "Regular-season win total" };
     if (b.type === "game") {
       const game = b.gameLabel || "Game";
@@ -354,16 +389,36 @@
         ${["pending", "won", "lost", "push"].map((s) => `<button type="button" data-set="${s}" data-id="${esc(b.id)}" aria-pressed="${(b.status || "pending") === s}">${s[0].toUpperCase() + s.slice(1)}</button>`).join("")}
       </div>` : "";
     const teamOwner = b.team ? ownerOfTeam(b.team) : null;
+    const legs = ev.legs ? `
+        <ol class="legs">${ev.legs.map(({ b: lb, ev: le, i }) => {
+          const ld = describe(lb);
+          const pillCls = le.state === "open" ? le.lean : le.state;
+          const setBtns = lb.type === "custom" ? `
+            <div class="bet-set sm" role="group" aria-label="Set result for leg ${i + 1}">
+              ${["pending", "won", "lost", "push"].map((s) => `<button type="button" data-legset="${s}" data-leg="${i}" data-id="${esc(b.id)}" aria-pressed="${(lb.status || "pending") === s}">${s[0].toUpperCase() + s.slice(1)}</button>`).join("")}
+            </div>` : "";
+          return `<li class="leg ${le.state}">
+            <div class="leg-main">
+              <span class="leg-n">${i + 1}</span>
+              <div class="leg-text"><p class="leg-title">${esc(ld.title)}</p><p class="leg-detail">${esc(le.detail || ld.sub)}</p></div>
+              <span class="pill sm ${pillCls}">${le.live ? `<i class="live-dot"></i>` : ""}${esc(le.label)}</span>
+            </div>
+            ${le.bar && le.bar.max > 0 ? `<div class="bet-bar${le.bar.invert ? " inv" : ""}"><span style="width:${Math.max(2, Math.min(100, (le.bar.value / le.bar.max) * 100))}%"></span></div>` : ""}
+            ${setBtns}
+          </li>`;
+        }).join("")}</ol>` : "";
     return `
-      <article class="bet ${ev.state}" style="--c:${esc(o ? o.color : "#92A5C3")}">
+      <article class="bet ${ev.state}${ev.legs ? " parlay" : ""}" style="--c:${esc(o ? o.color : "#92A5C3")}">
         <div class="bet-top">
           <span class="bet-who">${chip(b.owner)}${teamOwner && teamOwner !== b.owner ? `<small>${esc(teamOwner)}'s team</small>` : ""}</span>
           <span class="pill ${ev.state === "open" ? ev.lean : ev.state}">${ev.live ? `<i class="live-dot"></i>` : ""}${esc(ev.label)}</span>
         </div>
         <h3 class="bet-title">${esc(d.title)}</h3>
-        <p class="bet-sub">${esc(d.sub)}</p>
+        <p class="bet-sub">${esc(d.sub)}${b.type === "parlay" && b.odds ? ` · ${esc(b.odds)}` : ""}</p>
         ${bar}
         ${ev.detail ? `<p class="bet-detail">${esc(ev.detail)}</p>` : ""}
+        ${legs}
+        ${ev.note ? `<p class="bet-note">${esc(ev.note)}</p>` : ""}
         ${b.note ? `<p class="bet-note">“${esc(b.note)}”</p>` : ""}
         ${manual}
         <div class="bet-foot"><span>${money$ || `<span class="muted">No stake</span>`}</span><span class="muted">${esc(when)}${when ? " · " : ""}<button type="button" class="linkish" data-del="${esc(b.id)}">Remove</button></span></div>
@@ -450,6 +505,17 @@
               <option value="game">Single game</option>
               <option value="future">Playoffs and futures</option>
               <option value="custom">Something else</option>
+              <option value="parlay">Parlay (2 to ${MAX_LEGS} picks)</option>
+            </select></label>
+          </div>
+
+          <div class="bf-sec" data-sec="parlay" hidden>
+            <ol class="bf-legs" id="bfLegs"></ol>
+            <label>Next leg<select id="bfLegType">
+              <option value="wintotal">Team win total</option>
+              <option value="game">Single game</option>
+              <option value="future">Playoffs and futures</option>
+              <option value="custom">Something else</option>
             </select></label>
           </div>
 
@@ -457,8 +523,9 @@
             <label>Team<select id="bfWTeam">${teamOptions("")}</select></label>
             <div class="bf-row">
               <label>Pick<select id="bfWSide"><option value="over">Over</option><option value="under">Under</option></select></label>
-              <label>Line (wins)<input id="bfWLine" type="number" inputmode="decimal" step="0.5" placeholder="44.5"></label>
+              <label>Your line (wins)<input id="bfWLine" type="number" inputmode="decimal" step="0.5" placeholder="Line you got"></label>
             </div>
+            <p class="hint" id="bfWHint">Enter the line your sportsbook gave you. Lines move, so yours may differ.</p>
           </div>
 
           <div class="bf-sec" data-sec="game" hidden>
@@ -488,11 +555,15 @@
             <label>What's the bet?<input id="bfText" type="text" maxlength="140" placeholder="Wembanyama over 25 points per game"></label>
           </div>
 
+          <div class="bf-sec" data-sec="parlay-add" hidden>
+            <button type="button" class="addleg" id="bfAddLeg">+ Add this leg</button>
+          </div>
+
           <div class="bf-row">
             <label>Stake ($)<input id="bfStake" type="number" inputmode="decimal" min="0" step="1" placeholder="Optional"></label>
-            <label>Odds<input id="bfOdds" type="text" inputmode="text" maxlength="8" placeholder="-110"></label>
+            <label><span id="bfOddsLbl">Odds</span><input id="bfOdds" type="text" inputmode="text" maxlength="8" placeholder="-110"></label>
           </div>
-          <label>Note<input id="bfNote" type="text" maxlength="140" placeholder="Optional, like where you placed it"></label>
+          <label>Note<input id="bfNote" type="text" maxlength="140" placeholder="Optional, like FanDuel or when you bet"></label>
 
           <p class="bf-preview" id="bfPreview" aria-live="polite"></p>
           <p class="chat-note" id="bfErr" role="status"></p>
@@ -507,29 +578,49 @@
 
   const val = (id) => { const e = root().querySelector("#" + id); return e ? e.value : ""; };
 
+  // Parlay legs being built in the form (not saved until the whole parlay is placed).
+  let legs = [];
+  const effType = () => (val("bfType") === "parlay" ? val("bfLegType") : val("bfType"));
+
+  function renderLegs() {
+    const ol = root() && root().querySelector("#bfLegs");
+    if (!ol) return;
+    ol.innerHTML = legs.length
+      ? legs.map((l, i) => { const d = describe(l); return `<li><span class="leg-n">${i + 1}</span><div class="leg-text"><p class="leg-title">${esc(d.title)}</p><p class="leg-detail">${esc(d.sub)}</p></div><button type="button" class="x" data-rmleg="${i}" aria-label="Remove leg ${i + 1}">×</button></li>`; }).join("")
+      : `<li class="empty">No legs yet. Fill in a pick below, then tap Add this leg. You need 2 to ${MAX_LEGS}.</li>`;
+    const full = legs.length >= MAX_LEGS;
+    const add = root().querySelector("#bfAddLeg");
+    if (add) { add.disabled = full; add.textContent = full ? `Maximum of ${MAX_LEGS} legs` : `+ Add this leg (${legs.length} of ${MAX_LEGS})`; }
+  }
+
   function syncForm() {
     const el = root(); if (!el) return;
-    const type = val("bfType");
-    el.querySelectorAll(".bf-sec").forEach((s) => { s.hidden = s.dataset.sec !== type; });
+    const type = val("bfType"), eff = effType(), parlay = type === "parlay";
+    el.querySelectorAll(".bf-sec").forEach((s) => {
+      const sec = s.dataset.sec;
+      s.hidden = !(sec === eff || (parlay && (sec === "parlay" || sec === "parlay-add")));
+    });
+    const oddsLbl = el.querySelector("#bfOddsLbl"); if (oddsLbl) oddsLbl.textContent = parlay ? "Parlay odds (from your slip)" : "Odds";
+    const go = el.querySelector("#bfGo"); if (go) go.textContent = parlay ? "Place parlay" : "Place bet";
+    renderLegs();
     const kind = val("bfGKind");
     const set = (sel, show) => { const n = el.querySelector(sel); if (n) n.hidden = !show; };
     set('[data-g="team"]', kind !== "total");
     set('[data-g="side"]', kind === "total");
     set('[data-g="line"]', kind !== "ml");
     const lbl = el.querySelector("#bfGLineLbl");
-    if (lbl) lbl.textContent = kind === "spread" ? "Spread for your team (like -5.5 or +3)" : "Total points line";
+    if (lbl) lbl.textContent = kind === "spread" ? "Your spread for this team (like -5.5 or +3)" : "Your total points line";
     set('[data-f="side"]', val("bfFKind") === "playoffs");
     const r = readForm(true);
     el.querySelector("#bfPreview").textContent = r.bet ? describe(r.bet).title : "";
   }
 
-  // Build a bet from the form. `soft` skips error messages and just previews what's filled in.
-  function readForm(soft) {
-    const type = val("bfType"), who = val("bfWho");
-    const bad = (m) => ({ error: soft ? "" : m, bet: null });
-    const num = (id) => { const s = val(id).trim(); return s === "" ? null : Number(s); };
-    const b = { owner: who, type };
-    if (!who && !soft) return bad("Pick your name.");
+  const num = (id) => { const s = val(id).trim(); return s === "" ? null : Number(s); };
+
+  // Read one pick (a single bet, or one leg of a parlay) from the type-specific fields.
+  function readLeg(type) {
+    const bad = (m) => ({ leg: null, error: m });
+    const b = { type };
     if (type === "wintotal") {
       b.team = val("bfWTeam"); b.side = val("bfWSide"); b.line = num("bfWLine");
       if (!b.team) return bad("Pick a team."); if (!isNum(b.line)) return bad("Enter the win total line, like 44.5.");
@@ -549,7 +640,49 @@
     } else {
       b.text = val("bfText").trim();
       if (!b.text) return bad("Describe the bet.");
-      b.status = "pending";
+    }
+    return { leg: b, error: "" };
+  }
+
+  // Has anything been filled in for the pick currently on screen?
+  function legTouched(type) {
+    if (type === "wintotal") return !!(val("bfWTeam") || val("bfWLine"));
+    if (type === "game") return !!val("bfGGame");
+    if (type === "future") return !!val("bfFTeam");
+    return !!val("bfText").trim();
+  }
+
+  function clearLegFields() {
+    const el = root();
+    ["bfWTeam", "bfWLine", "bfText", "bfFTeam"].forEach((id) => { const n = el.querySelector("#" + id); if (n) n.value = ""; });
+    el.querySelector("#bfGGame").innerHTML = gameOptions(); fillGameTeams();
+    const gl = el.querySelector("#bfGLine"); if (gl) gl.value = "";
+    const hint = el.querySelector("#bfWHint"); if (hint) hint.textContent = "Enter the line your sportsbook gave you. Lines move, so yours may differ.";
+  }
+
+  // Build a bet from the form. `soft` skips error messages and just previews what's filled in.
+  function readForm(soft) {
+    const type = val("bfType"), who = val("bfWho");
+    const bad = (m) => ({ error: soft ? "" : m, bet: null });
+    if (!who && !soft) return bad("Pick your name.");
+    let b;
+    if (type === "parlay") {
+      let list = legs.slice();
+      const eff = val("bfLegType");
+      // A pick that's filled in but not added yet gets added for them when they place the parlay.
+      if (!soft && legTouched(eff)) {
+        const r = readLeg(eff);
+        if (r.error) return bad(`Finish the leg you're adding, or clear it. ${r.error}`);
+        if (list.length >= MAX_LEGS) return bad(`A parlay can have at most ${MAX_LEGS} legs.`);
+        list.push(r.leg);
+      }
+      if (!soft && list.length < 2) return bad(`A parlay needs at least 2 legs. You have ${list.length}.`);
+      b = { owner: who, type: "parlay", legs: list };
+    } else {
+      const r = readLeg(type);
+      if (r.error) return bad(r.error);
+      b = { owner: who, ...r.leg };
+      if (type === "custom") b.status = "pending";
     }
     const stake = num("bfStake");
     if (stake != null) {
@@ -583,12 +716,24 @@
     };
     q("#betAdd").onclick = () => toggle(!formOpen);
     q("#bfCancel").onclick = () => toggle(false);
+    q("#bfAddLeg").onclick = () => {
+      const err = q("#bfErr"); err.textContent = "";
+      if (legs.length >= MAX_LEGS) { err.textContent = `A parlay can have at most ${MAX_LEGS} legs.`; return; }
+      const r = readLeg(effType());
+      if (r.error) { err.textContent = r.error; return; }
+      legs.push(r.leg);
+      clearLegFields();
+      syncForm();
+    };
     q("#betForm").addEventListener("input", syncForm);
     q("#betForm").addEventListener("change", (e) => {
       if (e.target.id === "bfGGame") fillGameTeams();
-      if (e.target.id === "bfWTeam" && !val("bfWLine")) {
+      if (e.target.id === "bfWTeam") {
+        // The site's own line is only a reference. The bet uses whatever line the bettor types.
         const line = (C.winTotals || {})[val("bfWTeam")];
-        if (isNum(line)) q("#bfWLine").value = line;
+        q("#bfWHint").textContent = isNum(line)
+          ? `The site's line for the ${val("bfWTeam")} is ${line}. Enter the line your sportsbook gave you. Lines move, so yours may differ.`
+          : "Enter the line your sportsbook gave you. Lines move, so yours may differ.";
       }
       if (e.target.id === "bfWho") store.set(WHO_KEY, val("bfWho"));
       syncForm();
@@ -603,8 +748,9 @@
       q("#bfGo").disabled = true;
       try {
         await backend.add(r.bet);
-        ["bfWTeam", "bfWLine", "bfStake", "bfOdds", "bfNote", "bfText", "bfFTeam"].forEach((id) => { const n = q("#" + id); if (n) n.value = ""; });
-        q("#bfGGame").innerHTML = gameOptions(); fillGameTeams();
+        ["bfStake", "bfOdds", "bfNote"].forEach((id) => { const n = q("#" + id); if (n) n.value = ""; });
+        legs = [];
+        clearLegFields();
         toggle(false);
       } catch (ex) {
         err.textContent = ex && ex.code === "permission-denied"
@@ -617,6 +763,10 @@
     el.addEventListener("click", async (e) => {
       const f = e.target.closest("[data-f]");
       if (f && f.classList.contains("fchip")) { filter = f.dataset.f; update(); return; }
+      const rm = e.target.closest("[data-rmleg]");
+      if (rm) { legs.splice(Number(rm.dataset.rmleg), 1); syncForm(); return; }
+      const legSet = e.target.closest("[data-legset]");
+      if (legSet && backend) { try { await backend.setLegStatus(legSet.dataset.id, Number(legSet.dataset.leg), legSet.dataset.legset); } catch (ex) { window.alert("Couldn't update that leg."); } return; }
       const del = e.target.closest("[data-del]");
       if (del && backend) { if (window.confirm("Remove this bet?")) { try { await backend.remove(del.dataset.del); } catch (ex) { window.alert("Couldn't remove that bet."); } } return; }
       const set = e.target.closest("[data-set]");

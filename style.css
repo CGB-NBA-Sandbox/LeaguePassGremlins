@@ -299,6 +299,34 @@ button { font: inherit; color: inherit; }
 }
 .bet-set button[aria-pressed="true"] { background: var(--maple); border-color: var(--maple); color: var(--court); }
 
+/* parlays */
+.bf-legs { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.bf-legs li:not(.empty) { display: flex; align-items: center; gap: 10px; background: var(--court); border-radius: 10px; padding: 8px 10px; }
+.bf-legs li.empty { color: var(--muted); font-size: 0.85rem; }
+.bf-legs .x {
+  margin-left: auto; flex: none; width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--line);
+  background: transparent; color: var(--muted); font-size: 1.3rem; line-height: 1; cursor: pointer; padding: 0;
+}
+.leg-n {
+  flex: none; width: 22px; height: 22px; border-radius: 50%; background: rgba(255,255,255,0.1);
+  display: inline-flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; color: var(--muted);
+}
+.leg-text { min-width: 0; flex: 1; }
+.leg-title { margin: 0; font-weight: 600; font-size: 0.95rem; line-height: 1.25; overflow-wrap: anywhere; }
+.leg-detail { margin: 1px 0 0; color: var(--muted); font-size: 0.78rem; line-height: 1.25; overflow-wrap: anywhere; }
+.bets .addleg { width: 100%; background: transparent; color: var(--maple); border: 1px dashed var(--maple); border-radius: 10px; padding: 11px; font-weight: 700; font-size: 1rem; cursor: pointer; }
+.legs { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 6px; }
+.leg { background: rgba(0,0,0,0.18); border-radius: 8px; padding: 8px 10px; border-left: 3px solid rgba(255,255,255,0.15); }
+.leg.won { border-left-color: var(--win); }
+.leg.lost { border-left-color: var(--loss); }
+.leg-main { display: flex; align-items: flex-start; gap: 8px; }
+.leg-main .pill { margin-left: auto; flex: none; }
+.pill.sm { padding: 1px 8px; font-size: 0.72rem; }
+.leg .bet-bar { margin-top: 8px; height: 6px; }
+.bet-set.sm { margin-top: 8px; gap: 4px; }
+.bet-set.sm button { padding: 5px 0; min-height: 34px; font-size: 0.85rem; }
+.leg.lost .leg-title { text-decoration: line-through; text-decoration-color: rgba(228,105,93,0.6); }
+
 /* phone navigation: bottom bar + More sheet (wide screens keep the top tabs) */
 .bottombar, .sheet { display: none; }
 @media (max-width: 640px) {
