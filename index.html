@@ -15,7 +15,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;900&family=Barlow:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=17">
+  <link rel="stylesheet" href="style.css?v=20">
 </head>
 <body>
   <header class="top">
@@ -38,6 +38,7 @@
       <button type="button" role="tab" data-tab="teams">Teams</button>
       <button type="button" role="tab" data-tab="ou">O/U</button>
       <button type="button" role="tab" data-tab="proj">Proj</button>
+      <button type="button" role="tab" data-tab="bets">Bets</button>
       <button type="button" role="tab" data-tab="cup">Cup</button>
       <!-- chat hidden for now: <button type="button" role="tab" data-tab="chat">Chat</button> -->
     </nav>
@@ -55,7 +56,7 @@
     <button type="button" data-tab="season"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6h11M9 12h11M9 18h11"/><circle class="fill" cx="4.5" cy="6" r="1.4"/><circle class="fill" cx="4.5" cy="12" r="1.4"/><circle class="fill" cx="4.5" cy="18" r="1.4"/></svg><span>Season</span></button>
     <button type="button" data-tab="proj"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17l6-6 4 4 8-8M15 7h6v6"/></svg><span>Proj</span></button>
     <!-- chat hidden for now: <button type="button" data-tab="chat"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v11H9l-5 4V5z"/></svg><span>Chat</span></button> -->
-    <button type="button" data-tab="ou"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 4v8M4 8h8M13 18h7"/></svg><span>O/U</span></button>
+    <button type="button" data-tab="bets"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4v2h6V4M9 14l2 2 4-4"/></svg><span>Bets</span></button>
     <button type="button" id="moreBtn" aria-haspopup="true" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle class="fill" cx="5" cy="12" r="1.7"/><circle class="fill" cx="12" cy="12" r="1.7"/><circle class="fill" cx="19" cy="12" r="1.7"/></svg><span>More</span></button>
   </nav>
   <div class="sheet" id="moreSheet" hidden>
@@ -63,12 +64,14 @@
     <div class="sheet-panel" role="menu">
       <button type="button" role="menuitem" data-tab="weeks">Weeks</button>
       <button type="button" role="menuitem" data-tab="teams">Teams</button>
+      <button type="button" role="menuitem" data-tab="ou">O/U</button>
       <button type="button" role="menuitem" data-tab="cup">Cup</button>
     </div>
   </div>
 
-  <script src="config.js?v=17"></script>
-  <script src="app.js?v=17"></script>
-  <script type="module" src="chat.js?v=17"></script>
+  <script src="config.js?v=20"></script>
+  <script src="app.js?v=20"></script>
+  <script src="bets.js?v=20"></script>
+  <script type="module" src="chat.js?v=20"></script>
 </body>
 </html>

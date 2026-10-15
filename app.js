@@ -772,6 +772,9 @@
     if (chatOn) window.dispatchEvent(new Event("lpg:chat-open"));
     else if (state.error && !loaded.length) {
       panel.innerHTML = `<p class="error">${esc(state.error)}. Check your connection and tap Refresh.</p>`;
+    } else if (state.tab === "bets") {
+      if (window.LPGBets) window.LPGBets.render(panel);
+      else panel.innerHTML = `<p class="empty">Bets are loading…</p>`;
     } else if (state.tab === "games") panel.innerHTML = renderGames(r);
     else if (state.tab === "season") panel.innerHTML = renderSeason(season);
     else if (state.tab === "weeks") panel.innerHTML = renderWeeks(results);
@@ -855,6 +858,10 @@
   });
 
   // expose for testing
-  window.__lpg = { buildWeeks, computeWeek, computeSeason, normalize, state, projections };
+  window.__lpg = {
+    buildWeeks, computeWeek, computeSeason, normalize, state, projections,
+    // shared with bets.js
+    render, esc, chip, owners, teamIndex, teamRecords, cupGames, cupRound, cupResult, winnerOf, decided, gameTime, today
+  };
   load();
 })();

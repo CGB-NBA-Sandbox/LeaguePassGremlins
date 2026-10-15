@@ -1,0 +1,638 @@
+/*
+  Bets tab: friends post bets, everyone sees them, and each one is checked against live results.
+
+  Honor system: no logins. Bets are saved in the same Firebase project as chat (Firestore,
+  rooms/<room>/bets). Settings come from `chat.firebase` in config.js.
+
+  Automatic tracking: team win totals, single games (win / spread / total), and futures
+  (make the playoffs, division, NBA title, NBA Cup). "Something else" bets are set by hand.
+*/
+(() => {
+  "use strict";
+  const L = window.__lpg;
+  const C = window.LEAGUE;
+  if (!L || !C) return;
+
+  const cfg = C.chat || {};
+  const room = cfg.room || C.season;
+  const FB = "https://www.gstatic.com/firebasejs/10.12.2/";
+  const TZ = "America/New_York";
+  const WHO_KEY = "lpg:bets:who";
+  const GAMES = 82;
+  const { esc, chip, owners } = L;
+  const ownerByName = Object.fromEntries(owners.map((o) => [o.name, o]));
+  const teams = [...L.teamIndex].sort((a, b) => a.label.localeCompare(b.label));
+  const ownerOfTeam = (t) => (L.teamIndex.find((x) => x.label === t) || {}).owner || null;
+
+  const store = {
+    get: (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } },
+    set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) { /* storage unavailable */ } }
+  };
+
+  // ---------- small helpers ----------
+  const ordinal = (n) => { const s = ["th", "st", "nd", "rd"], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); };
+  const fmtLine = (n) => (n > 0 ? "+" : n < 0 ? "−" : "") + Math.abs(n);
+  const money = (n) => (n < 0 ? "−" : "") + "$" + Math.abs(n).toFixed(2).replace(/\.00$/, "");
+  const sgnMoney = (n) => (n > 0 ? "+" : "") + money(n);
+  const isNum = (v) => typeof v === "number" && isFinite(v);
+  const ymd = (d) => d.toISOString().slice(0, 10);
+  const addDays = (s, n) => { const d = new Date(`${s}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + n); return ymd(d); };
+  const dayRange = (a, b) => { const out = []; for (let d = a; d <= b; d = addDays(d, 1)) out.push(d); return out; };
+  const fetchJSON = async (u) => { const r = await fetch(u, { cache: "no-store" }); if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); };
+  const allGames = () => Object.values(L.state.games).flat();
+  const shortDay = (day) => new Date(`${day}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "short", month: "numeric", day: "numeric", timeZone: "UTC" });
+
+  // American odds -> profit per $1 staked. Blank odds mean -110.
+  function oddsMult(o) {
+    const t = String(o == null ? "" : o).trim().toLowerCase().replace("−", "-");
+    if (!t) return 100 / 110;
+    if (t === "even" || t === "ev") return 1;
+    const n = parseFloat(t);
+    if (!isFinite(n) || n === 0) return null;
+    return n < 0 ? 100 / -n : n / 100;
+  }
+  const toWin = (b) => (isNum(b.stake) && b.stake > 0 && oddsMult(b.odds) != null ? b.stake * oddsMult(b.odds) : null);
+
+  // ---------- storage (Firebase) ----------
+  let backend = null;
+  let bets = [];
+  let loaded = false;
+  let storeError = "";
+  let unsub = null;
+
+  async function firebaseBackend() {
+    const [app, fs] = await Promise.all([import(FB + "firebase-app.js"), import(FB + "firebase-firestore.js")]);
+    const a = app.getApps().find((x) => x.name === "bets") || app.initializeApp(cfg.firebase, "bets");
+    const col = fs.collection(fs.getFirestore(a), "rooms", room, "bets");
+    return {
+      listen(onChange, onError) {
+        const q = fs.query(col, fs.orderBy("createdAt", "desc"), fs.limit(300));
+        return fs.onSnapshot(q, (snap) => {
+          onChange(snap.docs.map((d) => {
+            const x = d.data({ serverTimestamps: "estimate" });
+            return { ...x, id: d.id, createdAt: x.createdAt && x.createdAt.toDate ? x.createdAt.toDate() : new Date() };
+          }));
+        }, onError);
+      },
+      add: (bet) => fs.addDoc(col, { ...bet, createdAt: fs.serverTimestamp() }),
+      remove: (id) => fs.deleteDoc(fs.doc(col, id)),
+      setStatus: (id, status) => fs.updateDoc(fs.doc(col, id), { status })
+    };
+  }
+
+  let starting = false;
+  async function start() {
+    if (backend || starting) return;
+    starting = true;
+    if (!window.__lpgBetsBackend && !(cfg.firebase && cfg.firebase.apiKey)) {
+      storeError = "Bets aren't connected yet. Add the Firebase settings to chat.firebase in config.js.";
+      loaded = true; starting = false; refresh();
+      return;
+    }
+    try {
+      backend = window.__lpgBetsBackend || await firebaseBackend();
+      unsub = backend.listen((list) => { bets = list; loaded = true; storeError = ""; refresh(); }, (err) => {
+        storeError = err && err.code === "permission-denied"
+          ? "The bets database isn't open yet. Ask Cole to publish the new Firebase rules."
+          : "Bets couldn't load. Check your connection and reopen the tab.";
+        loaded = true; refresh();
+      });
+    } catch (e) {
+      storeError = "Bets couldn't load. Check your connection and reopen the tab.";
+      loaded = true;
+    }
+    starting = false;
+    refresh();
+  }
+
+  // ---------- postseason data (standings + playoff games), loaded only when a futures bet exists ----------
+  const POST = { std: null, games: [], loadedAt: 0, loading: false, error: "" };
+  const needsPost = () => L.today() >= C.seasonStart && bets.some((b) => b.type === "future" && b.kind !== "cup");
+
+  function parseStandings(j) {
+    const by = {};
+    (j.children || []).forEach((conf) => (conf.children || []).forEach((div) => {
+      const rows = (div.standings && div.standings.entries) || [];
+      const list = rows.map((e) => {
+        const st = Object.fromEntries((e.stats || []).map((s) => [s.name, s.displayValue != null ? s.displayValue : s.value]));
+        return { name: e.team.name, conf: (conf.name || "").replace(/ Conference/i, ""), div: div.name, seed: Number(st.playoffSeed) || null,
+          clincher: st.clincher || "", w: Number(st.wins) || 0, l: Number(st.losses) || 0, gb: st.gamesBehind || "-" };
+      }).sort((a, b) => (b.w - b.l) - (a.w - a.l) || b.w - a.w);
+      list.forEach((r, i) => { by[r.name] = { ...r, divRank: i + 1, divTeams: list.map((x) => x.name) }; });
+    }));
+    return by;
+  }
+
+  const compactEvent = (e) => {
+    const c = (e.competitions && e.competitions[0]) || {};
+    return {
+      t: e.season ? e.season.type : null, d: e.date, st: (e.status && e.status.type && e.status.type.state) || "pre",
+      n: (c.notes || []).map((x) => x.headline || "").join(" "), sc: !!(c.series && c.series.completed),
+      teams: (c.competitors || []).map((t) => ({ name: t.team.name || t.team.shortDisplayName, w: t.winner === true }))
+    };
+  };
+
+  async function loadPost(force) {
+    if (POST.loading || !needsPost()) return;
+    if (!force && Date.now() - POST.loadedAt < 120e3) return;
+    POST.loading = true;
+    try {
+      const year = Number(String(C.season).slice(0, 4)) + 1;
+      POST.std = parseStandings(await fetchJSON(`https://site.api.espn.com/apis/v2/sports/basketball/nba/standings?season=${year}&level=3`));
+      const t = L.today();
+      if (t > C.seasonEnd) {
+        const days = dayRange(addDays(C.seasonEnd, 1), t < addDays(C.seasonEnd, 75) ? t : addDays(C.seasonEnd, 75));
+        const out = await Promise.all(days.map(async (day) => {
+          const key = `lpg:${C.season}:post:${day}`;
+          try { const c = localStorage.getItem(key); if (c) return JSON.parse(c); } catch (e) { /* ignore */ }
+          try {
+            const evs = ((await fetchJSON(`https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard?dates=${day.replace(/-/g, "")}`)).events || []).map(compactEvent);
+            if (day < t && evs.every((x) => x.st === "post")) { try { localStorage.setItem(key, JSON.stringify(evs)); } catch (e) { /* ignore */ } }
+            return evs;
+          } catch (e) { return []; }
+        }));
+        POST.games = out.flat().sort((a, b) => a.d.localeCompare(b.d));
+      }
+      POST.error = "";
+    } catch (e) {
+      POST.error = e.message;
+    }
+    POST.loadedAt = Date.now();
+    POST.loading = false;
+    refresh();
+  }
+
+  function postInfo() {
+    const po = POST.games.filter((e) => e.t === 3);
+    const playoffTeams = new Set(po.flatMap((e) => e.teams.map((t) => t.name)));
+    const round = (n) => n.replace(/\s*-\s*Game\s*\d+.*$/i, "").trim();
+    const out = new Map(), last = new Map();
+    po.forEach((e) => {
+      e.teams.forEach((t) => last.set(t.name, round(e.n)));
+      if (e.sc && e.st === "post") { const lo = e.teams.find((t) => !t.w); if (lo) out.set(lo.name, round(e.n)); }
+    });
+    const fin = po.find((e) => /NBA Finals/i.test(e.n) && e.sc && e.st === "post");
+    const champion = fin ? (fin.teams.find((t) => t.w) || {}).name || null : null;
+    return { started: po.length > 0, playoffTeams, known: playoffTeams.size >= 16, out, last, champion };
+  }
+
+  // ---------- evaluating a bet ----------
+  const R = (state, label, detail, lean, bar, live) => ({ state, label, detail: detail || "", lean: lean || "neutral", bar: bar || null, live: !!live });
+
+  function evalWinTotal(b, ctx) {
+    const rec = ctx.records[b.team] || { w: 0, l: 0 };
+    const gp = rec.w + rec.l, rest = GAMES - gp, maxW = GAMES - rec.l, line = b.line, over = b.side === "over";
+    let state = "open";
+    if (over) {
+      if (rec.w > line) state = "won"; else if (maxW < line) state = "lost"; else if (rest === 0) state = rec.w === line ? "push" : "lost";
+    } else {
+      if (rec.w > line) state = "lost"; else if (maxW < line) state = "won"; else if (rest === 0) state = rec.w === line ? "push" : "won";
+    }
+    const needMin = Math.floor(line) + 1, allowMax = Math.ceil(line) - 1;
+    const proj = (ctx.proj.find((t) => t.label === b.team) || {}).proj;
+    const bar = over
+      ? { value: rec.w, max: needMin, label: `${rec.w} of ${needMin} wins needed` }
+      : { value: rec.w, max: allowMax + 1, label: `${rec.w} wins · can allow ${allowMax}`, invert: true };
+    const rec$ = `${rec.w}-${rec.l}`;
+    if (state === "won") return R("won", "Won", `${rec$} · ${rest ? `clinched with ${rest} games left` : "final"}`, "good", bar);
+    if (state === "lost") return R("lost", "Lost", `${rec$} · ${rest ? `out of reach with ${rest} games left` : "final"}`, "bad", bar);
+    if (state === "push") return R("push", "Push", `${rec$} · final`, "neutral", bar);
+    if (!gp) return R("open", "Not started", `Line ${line} wins · season hasn't begun`, "neutral", bar);
+    const lean = isNum(proj) ? ((over ? proj > line : proj < line) ? "good" : "bad") : "neutral";
+    const need = over ? Math.max(0, needMin - rec.w) : null;
+    const detail = `${rec$} · proj ${isNum(proj) ? proj.toFixed(1) : "–"} vs ${line} · ${rest} left` +
+      (over ? ` · needs ${need} more win${need === 1 ? "" : "s"}` : ` · can afford ${Math.max(0, allowMax - rec.w)} more win${allowMax - rec.w === 1 ? "" : "s"}`);
+    return R("open", lean === "good" ? "On track" : lean === "bad" ? "Behind" : "Pending", detail, lean, bar);
+  }
+
+  function evalGame(b) {
+    const g = allGames().find((x) => x.id === b.gameId);
+    const title = b.gameLabel || "";
+    if (!g) return R("open", "Pending", `Waiting for ${title || "the game"} to show up in the schedule`, "neutral");
+    const mine = (s) => s && (s.label === b.team || s.name === b.team);
+    const my = b.kind === "total" ? g.home : (mine(g.home) ? g.home : g.away);
+    const opp = my === g.home ? g.away : g.home;
+    const hs = isNum(g.home.score) ? g.home.score : 0, as = isNum(g.away.score) ? g.away.score : 0;
+    const score = `${g.away.abbr} ${as} – ${g.home.abbr} ${hs}`;
+    const when = `${shortDay(g.day)} · ${L.gameTime(g)}`;
+    if (g.state === "pre") return R("open", "Pending", `${g.away.abbr} @ ${g.home.abbr} · ${when}`, "neutral");
+    const live = g.state === "in";
+    const final = decided(g);
+    const sum = hs + as, ms = my && isNum(my.score) ? my.score : 0, os = opp && isNum(opp.score) ? opp.score : 0, diff = ms - os;
+    const where = live ? `${score} · ${g.detail}` : `${score} · final`;
+    const finish = (val) => (val > 0 ? R("won", "Won", where, "good") : val < 0 ? R("lost", "Lost", where, "bad") : R("push", "Push", where, "neutral"));
+    if (b.kind === "ml") {
+      if (final) return finish(my.winner ? 1 : -1);
+      if (live) return R("open", diff > 0 ? "Winning" : diff < 0 ? "Trailing" : "Tied", where, diff > 0 ? "good" : diff < 0 ? "bad" : "neutral", null, true);
+    } else if (b.kind === "spread") {
+      const adj = diff + b.line;
+      if (final) return finish(adj);
+      if (live) return R("open", adj > 0 ? "Covering" : adj < 0 ? "Not covering" : "On the number", `${where} · ${adj > 0 ? "up" : "down"} ${Math.abs(adj)} vs the spread`, adj > 0 ? "good" : adj < 0 ? "bad" : "neutral", null, true);
+    } else if (b.kind === "total") {
+      const over = b.side === "over", bar = { value: sum, max: b.line, label: `${sum} points · line ${b.line}` };
+      if (over && sum > b.line) return R("won", "Won", `${where} · total passed ${b.line}`, "good", bar);
+      if (!over && sum > b.line) return R("lost", "Lost", `${where} · total passed ${b.line}`, "bad", bar);
+      if (final) return finish(over ? sum - b.line : b.line - sum);
+      if (live) return R("open", "Live", where, "neutral", bar, true);
+    }
+    return R("open", "Pending", where, "neutral");
+  }
+  const decided = (g) => L.decided(g);
+
+  function evalFuture(b, ctx) {
+    const team = b.team, kind = b.kind;
+    if (kind === "cup") {
+      const games = L.cupGames();
+      const final = games.find((g) => L.cupRound(g) === "final");
+      const fw = final && L.winnerOf(final);
+      if (fw && fw.name === team) return R("won", "Won", "Won the NBA Cup", "good");
+      const lostGame = games.find((g) => ["qf", "sf", "final"].includes(L.cupRound(g)) && L.winnerOf(g) && [g.home, g.away].some((s) => s.name === team) && L.winnerOf(g).name !== team);
+      if (lostGame) return R("lost", "Lost", `Out in the ${({ qf: "quarterfinals", sf: "semifinals", final: "final" })[L.cupRound(lostGame)]}`, "bad");
+      const qf = games.filter((g) => L.cupRound(g) === "qf");
+      if (qf.length && !qf.some((g) => [g.home, g.away].some((s) => s.name === team))) return R("lost", "Lost", "Didn't advance from group play", "bad");
+      if (fw) return R("lost", "Lost", `${fw.name} won the NBA Cup`, "bad");
+      if (!games.length) return R("open", "Pending", "Group play starts in November", "neutral");
+      const latest = [...games].reverse().find((g) => [g.home, g.away].some((s) => s.name === team) && L.cupRound(g) !== "group");
+      return R("open", latest ? "Alive" : "Pending", latest ? "Still alive in the knockout rounds" : "In group play", latest ? "good" : "neutral");
+    }
+    // ESPN's standings show preseason records until opening night, so wait for the real season.
+    if (L.today() < C.seasonStart) return R("open", "Pending", `Season starts ${new Date(`${C.seasonStart}T12:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })}`, "neutral");
+    if (!POST.std) return R("open", "Pending", POST.error ? "Couldn't load standings right now" : "Checking standings…", "neutral");
+    const st = POST.std[team];
+    if (!st) return R("open", "Pending", "Team not found in standings", "neutral");
+    const info = ctx.post;
+    const seedTxt = st.seed ? `No. ${st.seed} seed in the ${st.conf}` : st.conf;
+
+    if (kind === "playoffs") {
+      const yes = b.side !== "no";
+      let inn = null, why = "";
+      if (info.playoffTeams.has(team)) { inn = true; why = "In the playoffs"; }
+      else if (info.known) { inn = false; why = "Missed the playoffs"; }
+      else if (["x", "y", "z", "*"].includes(st.clincher)) { inn = true; why = "Clinched a playoff spot"; }
+      else if (st.clincher === "e") { inn = false; why = "Eliminated from the playoffs"; }
+      if (inn == null) {
+        const pi = ["xp", "pb"].includes(st.clincher) || (st.seed >= 7 && st.seed <= 10);
+        return R("open", "Pending", `${seedTxt}${pi ? " · in the play-in picture" : ""} · ${st.w}-${st.l}`, "neutral");
+      }
+      return (inn === yes) ? R("won", "Won", why, "good") : R("lost", "Lost", why, "bad");
+    }
+
+    if (kind === "division") {
+      const win = ["y", "z", "*"].includes(st.clincher);
+      const rival = st.divTeams.map((n) => POST.std[n]).find((o) => o && o.name !== team && ["y", "z", "*"].includes(o.clincher));
+      if (win) return R("won", "Won", `Clinched the ${st.div}`, "good");
+      if (rival) return R("lost", "Lost", `${rival.name} clinched the ${st.div}`, "bad");
+      if (L.today() > C.seasonEnd) return st.divRank === 1 ? R("won", "Won", `Won the ${st.div}`, "good") : R("lost", "Lost", `Finished ${ordinal(st.divRank)} in the ${st.div}`, "bad");
+      return R("open", st.divRank === 1 ? "Leading" : "Chasing", `${ordinal(st.divRank)} in the ${st.div}${st.gb && st.gb !== "-" ? ` · ${st.gb} GB` : ""}`, st.divRank === 1 ? "good" : "bad");
+    }
+
+    if (kind === "title") {
+      if (info.champion === team) return R("won", "Won", "NBA champions", "good");
+      if (info.out.has(team)) return R("lost", "Lost", `Eliminated in the ${info.out.get(team)}`, "bad");
+      if (info.known && !info.playoffTeams.has(team)) return R("lost", "Lost", "Missed the playoffs", "bad");
+      if (st.clincher === "e") return R("lost", "Lost", "Eliminated from the playoffs", "bad");
+      if (info.champion) return R("lost", "Lost", `${info.champion} won the title`, "bad");
+      if (info.started) return R("open", "Alive", `Still alive · ${info.last.get(team) || "in the playoffs"}`, "good");
+      return R("open", "Pending", `Regular season · ${seedTxt}`, "neutral");
+    }
+    return R("open", "Pending", "", "neutral");
+  }
+
+  function evaluate(b, ctx) {
+    try {
+      if (b.type === "wintotal") return evalWinTotal(b, ctx);
+      if (b.type === "game") return evalGame(b);
+      if (b.type === "future") return evalFuture(b, ctx);
+    } catch (e) { return R("open", "Pending", "Couldn't check this one yet", "neutral"); }
+    const s = b.status;
+    if (s === "won") return R("won", "Won", "", "good");
+    if (s === "lost") return R("lost", "Lost", "", "bad");
+    if (s === "push") return R("push", "Push", "", "neutral");
+    return R("open", "Pending", "Set the result once it's settled", "neutral");
+  }
+
+  // ---------- describing a bet ----------
+  const FUTURES = {
+    playoffs: "to make the playoffs", division: "to win their division", title: "to win the NBA title", cup: "to win the NBA Cup"
+  };
+  function describe(b) {
+    if (b.type === "wintotal") return { title: `${b.team} ${b.side} ${b.line} wins`, sub: "Regular-season win total" };
+    if (b.type === "game") {
+      const game = b.gameLabel || "Game";
+      if (b.kind === "ml") return { title: `${b.team} to win`, sub: game };
+      if (b.kind === "spread") return { title: `${b.team} ${fmtLine(b.line)}`, sub: `Spread · ${game}` };
+      return { title: `${b.side === "under" ? "Under" : "Over"} ${b.line} points`, sub: `Game total · ${game}` };
+    }
+    if (b.type === "future") {
+      if (b.kind === "playoffs" && b.side === "no") return { title: `${b.team} to miss the playoffs`, sub: "Future" };
+      return { title: `${b.team} ${FUTURES[b.kind] || ""}`.trim(), sub: "Future" };
+    }
+    return { title: b.text || "Custom bet", sub: "Custom bet" };
+  }
+
+  // ---------- rendering ----------
+  let panelEl = null;
+  let filter = "all";
+  let formOpen = false;
+  const root = () => (panelEl ? panelEl.querySelector(".bets") : null);
+
+  function cardHTML(b, ev) {
+    const d = describe(b), o = ownerByName[b.owner];
+    const win = toWin(b);
+    let money$ = "";
+    if (isNum(b.stake) && b.stake > 0) {
+      const base = `${money(b.stake)} stake${win != null ? ` · to win ${money(win)}` : ""}`;
+      money$ = ev.state === "won" && win != null ? `${base} · <b class="pos">${sgnMoney(win)}</b>`
+        : ev.state === "lost" ? `${base} · <b class="neg">${sgnMoney(-b.stake)}</b>`
+        : ev.state === "push" ? `${base} · <b>$0</b>` : base;
+    }
+    const bar = ev.bar && ev.bar.max > 0
+      ? `<div class="bet-bar${ev.bar.invert ? " inv" : ""}" role="img" aria-label="${esc(ev.bar.label)}"><span style="width:${Math.max(2, Math.min(100, (ev.bar.value / ev.bar.max) * 100))}%"></span></div><p class="bet-barlabel">${esc(ev.bar.label)}</p>` : "";
+    const when = b.createdAt instanceof Date ? b.createdAt.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: TZ }) : "";
+    const manual = b.type === "custom" ? `
+      <div class="bet-set" role="group" aria-label="Set result">
+        ${["pending", "won", "lost", "push"].map((s) => `<button type="button" data-set="${s}" data-id="${esc(b.id)}" aria-pressed="${(b.status || "pending") === s}">${s[0].toUpperCase() + s.slice(1)}</button>`).join("")}
+      </div>` : "";
+    const teamOwner = b.team ? ownerOfTeam(b.team) : null;
+    return `
+      <article class="bet ${ev.state}" style="--c:${esc(o ? o.color : "#92A5C3")}">
+        <div class="bet-top">
+          <span class="bet-who">${chip(b.owner)}${teamOwner && teamOwner !== b.owner ? `<small>${esc(teamOwner)}'s team</small>` : ""}</span>
+          <span class="pill ${ev.state === "open" ? ev.lean : ev.state}">${ev.live ? `<i class="live-dot"></i>` : ""}${esc(ev.label)}</span>
+        </div>
+        <h3 class="bet-title">${esc(d.title)}</h3>
+        <p class="bet-sub">${esc(d.sub)}</p>
+        ${bar}
+        ${ev.detail ? `<p class="bet-detail">${esc(ev.detail)}</p>` : ""}
+        ${b.note ? `<p class="bet-note">“${esc(b.note)}”</p>` : ""}
+        ${manual}
+        <div class="bet-foot"><span>${money$ || `<span class="muted">No stake</span>`}</span><span class="muted">${esc(when)}${when ? " · " : ""}<button type="button" class="linkish" data-del="${esc(b.id)}">Remove</button></span></div>
+      </article>`;
+  }
+
+  function update() {
+    const el = root();
+    if (!el) return;
+    const board = el.querySelector("#betsBoard"), chips = el.querySelector("#betsFilter"), list = el.querySelector("#betsList");
+
+    if (storeError) { board.innerHTML = ""; chips.innerHTML = ""; list.innerHTML = `<p class="error">${esc(storeError)}</p>`; return; }
+    if (!loaded) { list.innerHTML = `<p class="empty">Loading bets…</p>`; return; }
+    if (needsPost()) loadPost();
+
+    const ctx = { records: L.teamRecords(), proj: L.projections().teams, post: postInfo() };
+    const rows = bets.map((b) => ({ b, ev: evaluate(b, ctx) }));
+
+    // scoreboard
+    const by = Object.fromEntries(owners.map((o) => [o.name, { name: o.name, w: 0, l: 0, p: 0, open: 0, net: 0, staked: false }]));
+    rows.forEach(({ b, ev }) => {
+      const r = by[b.owner]; if (!r) return;
+      const win = toWin(b), has = isNum(b.stake) && b.stake > 0;
+      if (has) r.staked = true;
+      if (ev.state === "won") { r.w++; if (has && win != null) r.net += win; }
+      else if (ev.state === "lost") { r.l++; if (has) r.net -= b.stake; }
+      else if (ev.state === "push") r.p++;
+      else r.open++;
+    });
+    const anyMoney = Object.values(by).some((r) => r.staked);
+    const table = Object.values(by).filter((r) => r.w + r.l + r.p + r.open > 0)
+      .sort((a, b) => b.net - a.net || b.w - a.w || a.name.localeCompare(b.name));
+    board.innerHTML = table.length ? `
+      <div class="scroll"><table class="tbl bets-board">
+        <thead><tr><th>Owner</th><th class="num">W-L-P</th>${anyMoney ? `<th class="num">Net</th>` : ""}<th class="num">Open</th></tr></thead>
+        <tbody>${table.map((r) => `
+          <tr style="--c:${esc(ownerByName[r.name].color)}">
+            <td class="name"><span class="dot"></span>${esc(r.name)}</td>
+            <td class="num">${r.w}-${r.l}-${r.p}</td>
+            ${anyMoney ? `<td class="num strong ${r.net > 0 ? "pos" : r.net < 0 ? "neg" : ""}">${r.staked ? sgnMoney(Math.round(r.net * 100) / 100) : "–"}</td>` : ""}
+            <td class="num">${r.open}</td>
+          </tr>`).join("")}</tbody>
+      </table></div>` : "";
+
+    // filter chips
+    const chipDefs = [{ k: "all", t: "Everyone" }, ...owners.map((o) => ({ k: o.name, t: o.name, c: o.color }))];
+    chips.innerHTML = bets.length ? chipDefs.map((c) => `<button type="button" class="fchip" data-f="${esc(c.k)}" aria-pressed="${filter === c.k}"${c.c ? ` style="--c:${esc(c.c)}"` : ""}>${esc(c.t)}</button>`).join("") : "";
+
+    // cards
+    const shown = rows.filter(({ b }) => filter === "all" || b.owner === filter);
+    const active = shown.filter(({ ev }) => ev.state === "open"), done = shown.filter(({ ev }) => ev.state !== "open");
+    if (!bets.length) list.innerHTML = `<p class="empty">No bets yet. Tap Add a bet to put the first one on the board.</p>`;
+    else if (!shown.length) list.innerHTML = `<p class="empty">No bets for ${esc(filter)} yet.</p>`;
+    else list.innerHTML =
+      (active.length ? `<h3 class="bets-h">Active · ${active.length}</h3>${active.map(({ b, ev }) => cardHTML(b, ev)).join("")}` : "") +
+      (done.length ? `<h3 class="bets-h">Settled · ${done.length}</h3>${done.map(({ b, ev }) => cardHTML(b, ev)).join("")}` : "");
+  }
+
+  // ---------- the Add a bet form ----------
+  function teamOptions(sel) {
+    return `<option value="" disabled${sel ? "" : " selected"}>Pick a team</option>` +
+      teams.map((t) => `<option value="${esc(t.label)}"${t.label === sel ? " selected" : ""}>${esc(t.label)} (${esc(t.owner)})</option>`).join("");
+  }
+  function gameOptions() {
+    const g = allGames().filter((x) => x.state === "pre" && x.home && x.away).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 80);
+    if (!g.length) return `<option value="" disabled selected>No upcoming games loaded</option>`;
+    return `<option value="" disabled selected>Pick a game</option>` +
+      g.map((x) => `<option value="${esc(x.id)}">${esc(shortDay(x.day))} · ${esc(x.away.abbr)} @ ${esc(x.home.abbr)} · ${esc(L.gameTime(x))}</option>`).join("");
+  }
+
+  function shell() {
+    const who = store.get(WHO_KEY);
+    return `
+      <div class="bets">
+        <div class="bets-head">
+          <button type="button" class="primary" id="betAdd" aria-expanded="${formOpen}">${formOpen ? "Close" : "+ Add a bet"}</button>
+          <span class="muted">Honor system. Everyone sees every bet.</span>
+        </div>
+        <form class="bet-form" id="betForm" autocomplete="off" ${formOpen ? "" : "hidden"} novalidate>
+          <div class="bf-row">
+            <label>Who<select id="bfWho"><option value="" disabled${who && ownerByName[who] ? "" : " selected"}>Pick your name</option>${owners.map((o) => `<option${o.name === who ? " selected" : ""}>${esc(o.name)}</option>`).join("")}</select></label>
+            <label>Type<select id="bfType">
+              <option value="wintotal">Team win total</option>
+              <option value="game">Single game</option>
+              <option value="future">Playoffs and futures</option>
+              <option value="custom">Something else</option>
+            </select></label>
+          </div>
+
+          <div class="bf-sec" data-sec="wintotal">
+            <label>Team<select id="bfWTeam">${teamOptions("")}</select></label>
+            <div class="bf-row">
+              <label>Pick<select id="bfWSide"><option value="over">Over</option><option value="under">Under</option></select></label>
+              <label>Line (wins)<input id="bfWLine" type="number" inputmode="decimal" step="0.5" placeholder="44.5"></label>
+            </div>
+          </div>
+
+          <div class="bf-sec" data-sec="game" hidden>
+            <label>Game<select id="bfGGame">${gameOptions()}</select></label>
+            <div class="bf-row">
+              <label>Bet<select id="bfGKind"><option value="ml">Team to win</option><option value="spread">Spread</option><option value="total">Total points</option></select></label>
+              <label data-g="team">Team<select id="bfGTeam"><option value="" disabled selected>Pick a game first</option></select></label>
+              <label data-g="side" hidden>Pick<select id="bfGSide"><option value="over">Over</option><option value="under">Under</option></select></label>
+            </div>
+            <label data-g="line" hidden><span id="bfGLineLbl">Line</span><input id="bfGLine" type="number" inputmode="decimal" step="0.5" placeholder="-5.5"></label>
+          </div>
+
+          <div class="bf-sec" data-sec="future" hidden>
+            <div class="bf-row">
+              <label>Bet<select id="bfFKind">
+                <option value="playoffs">Make the playoffs</option>
+                <option value="division">Win their division</option>
+                <option value="title">Win the NBA title</option>
+                <option value="cup">Win the NBA Cup</option>
+              </select></label>
+              <label data-f="side">Pick<select id="bfFSide"><option value="yes">Will make it</option><option value="no">Will miss</option></select></label>
+            </div>
+            <label>Team<select id="bfFTeam">${teamOptions("")}</select></label>
+          </div>
+
+          <div class="bf-sec" data-sec="custom" hidden>
+            <label>What's the bet?<input id="bfText" type="text" maxlength="140" placeholder="Wembanyama over 25 points per game"></label>
+          </div>
+
+          <div class="bf-row">
+            <label>Stake ($)<input id="bfStake" type="number" inputmode="decimal" min="0" step="1" placeholder="Optional"></label>
+            <label>Odds<input id="bfOdds" type="text" inputmode="text" maxlength="8" placeholder="-110"></label>
+          </div>
+          <label>Note<input id="bfNote" type="text" maxlength="140" placeholder="Optional, like where you placed it"></label>
+
+          <p class="bf-preview" id="bfPreview" aria-live="polite"></p>
+          <p class="chat-note" id="bfErr" role="status"></p>
+          <div class="bf-actions"><button type="submit" class="primary" id="bfGo">Place bet</button><button type="button" id="bfCancel">Cancel</button></div>
+          <p class="hint">Odds are American, like -110 or +250. Blank odds count as -110.</p>
+        </form>
+        <div id="betsBoard"></div>
+        <div class="bets-filter" id="betsFilter"></div>
+        <div id="betsList"></div>
+      </div>`;
+  }
+
+  const val = (id) => { const e = root().querySelector("#" + id); return e ? e.value : ""; };
+
+  function syncForm() {
+    const el = root(); if (!el) return;
+    const type = val("bfType");
+    el.querySelectorAll(".bf-sec").forEach((s) => { s.hidden = s.dataset.sec !== type; });
+    const kind = val("bfGKind");
+    const set = (sel, show) => { const n = el.querySelector(sel); if (n) n.hidden = !show; };
+    set('[data-g="team"]', kind !== "total");
+    set('[data-g="side"]', kind === "total");
+    set('[data-g="line"]', kind !== "ml");
+    const lbl = el.querySelector("#bfGLineLbl");
+    if (lbl) lbl.textContent = kind === "spread" ? "Spread for your team (like -5.5 or +3)" : "Total points line";
+    set('[data-f="side"]', val("bfFKind") === "playoffs");
+    const r = readForm(true);
+    el.querySelector("#bfPreview").textContent = r.bet ? describe(r.bet).title : "";
+  }
+
+  // Build a bet from the form. `soft` skips error messages and just previews what's filled in.
+  function readForm(soft) {
+    const type = val("bfType"), who = val("bfWho");
+    const bad = (m) => ({ error: soft ? "" : m, bet: null });
+    const num = (id) => { const s = val(id).trim(); return s === "" ? null : Number(s); };
+    const b = { owner: who, type };
+    if (!who && !soft) return bad("Pick your name.");
+    if (type === "wintotal") {
+      b.team = val("bfWTeam"); b.side = val("bfWSide"); b.line = num("bfWLine");
+      if (!b.team) return bad("Pick a team."); if (!isNum(b.line)) return bad("Enter the win total line, like 44.5.");
+    } else if (type === "game") {
+      const g = allGames().find((x) => x.id === val("bfGGame"));
+      if (!g) return bad("Pick a game.");
+      b.kind = val("bfGKind"); b.gameId = g.id; b.gameDay = g.day; b.gameLabel = `${g.away.abbr} @ ${g.home.abbr} · ${shortDay(g.day)}`;
+      if (b.kind === "total") { b.side = val("bfGSide"); b.line = num("bfGLine"); if (!isNum(b.line)) return bad("Enter the total points line, like 221.5."); }
+      else {
+        b.team = val("bfGTeam"); if (!b.team) return bad("Pick a team.");
+        if (b.kind === "spread") { b.line = num("bfGLine"); if (!isNum(b.line)) return bad("Enter the spread for your team, like -5.5."); }
+      }
+    } else if (type === "future") {
+      b.kind = val("bfFKind"); b.team = val("bfFTeam");
+      if (b.kind === "playoffs") b.side = val("bfFSide");
+      if (!b.team) return bad("Pick a team.");
+    } else {
+      b.text = val("bfText").trim();
+      if (!b.text) return bad("Describe the bet.");
+      b.status = "pending";
+    }
+    const stake = num("bfStake");
+    if (stake != null) {
+      if (!isNum(stake) || stake <= 0) return bad("Stake should be more than $0, or leave it blank.");
+      b.stake = Math.round(stake * 100) / 100;
+    }
+    let odds = val("bfOdds").trim().replace("−", "-");
+    if (odds && !/^([+-]?\d{2,5}|even|ev)$/i.test(odds)) return bad("Odds look like -110 or +250.");
+    if (odds && /^\d/.test(odds) && !/even|ev/i.test(odds)) odds = "+" + odds;
+    if (odds) b.odds = odds;
+    const note = val("bfNote").trim(); if (note) b.note = note;
+    return { bet: b, error: "" };
+  }
+
+  function fillGameTeams() {
+    const g = allGames().find((x) => x.id === val("bfGGame"));
+    const sel = root().querySelector("#bfGTeam");
+    sel.innerHTML = g
+      ? `<option value="" disabled selected>Pick a team</option><option value="${esc(g.away.label || g.away.name)}">${esc(g.away.name)} (away)</option><option value="${esc(g.home.label || g.home.name)}">${esc(g.home.name)} (home)</option>`
+      : `<option value="" disabled selected>Pick a game first</option>`;
+  }
+
+  function bind(el) {
+    const q = (s) => el.querySelector(s);
+    const toggle = (open) => {
+      formOpen = open;
+      q("#betForm").hidden = !open;
+      q("#betAdd").textContent = open ? "Close" : "+ Add a bet";
+      q("#betAdd").setAttribute("aria-expanded", String(open));
+      if (open) { q("#bfGGame").innerHTML = gameOptions(); fillGameTeams(); syncForm(); }
+    };
+    q("#betAdd").onclick = () => toggle(!formOpen);
+    q("#bfCancel").onclick = () => toggle(false);
+    q("#betForm").addEventListener("input", syncForm);
+    q("#betForm").addEventListener("change", (e) => {
+      if (e.target.id === "bfGGame") fillGameTeams();
+      if (e.target.id === "bfWTeam" && !val("bfWLine")) {
+        const line = (C.winTotals || {})[val("bfWTeam")];
+        if (isNum(line)) q("#bfWLine").value = line;
+      }
+      if (e.target.id === "bfWho") store.set(WHO_KEY, val("bfWho"));
+      syncForm();
+    });
+    q("#betForm").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const err = q("#bfErr"); err.textContent = "";
+      const r = readForm(false);
+      if (r.error) { err.textContent = r.error; return; }
+      if (!backend) { err.textContent = storeError || "Bets aren't ready yet. Try again in a moment."; return; }
+      store.set(WHO_KEY, r.bet.owner);
+      q("#bfGo").disabled = true;
+      try {
+        await backend.add(r.bet);
+        ["bfWTeam", "bfWLine", "bfStake", "bfOdds", "bfNote", "bfText", "bfFTeam"].forEach((id) => { const n = q("#" + id); if (n) n.value = ""; });
+        q("#bfGGame").innerHTML = gameOptions(); fillGameTeams();
+        toggle(false);
+      } catch (ex) {
+        err.textContent = ex && ex.code === "permission-denied"
+          ? "Couldn't save. The bets database isn't open yet. Ask Cole to publish the new Firebase rules."
+          : "Couldn't save that bet. Check your connection and try again.";
+      }
+      q("#bfGo").disabled = false;
+    });
+
+    el.addEventListener("click", async (e) => {
+      const f = e.target.closest("[data-f]");
+      if (f && f.classList.contains("fchip")) { filter = f.dataset.f; update(); return; }
+      const del = e.target.closest("[data-del]");
+      if (del && backend) { if (window.confirm("Remove this bet?")) { try { await backend.remove(del.dataset.del); } catch (ex) { window.alert("Couldn't remove that bet."); } } return; }
+      const set = e.target.closest("[data-set]");
+      if (set && backend) { try { await backend.setStatus(set.dataset.id, set.dataset.set); } catch (ex) { window.alert("Couldn't update that bet."); } }
+    });
+    syncForm();
+  }
+
+  // Called by app.js whenever the Bets tab is drawn (also on every score refresh).
+  function render(panel) {
+    panelEl = panel;
+    start();
+    if (!panel.querySelector(".bets")) { panel.innerHTML = shell(); bind(panel.querySelector(".bets")); }
+    update();
+  }
+  function refresh() { if (panelEl && L.state.tab === "bets" && root()) update(); }
+
+  window.LPGBets = { render, evaluate, describe, _bets: () => bets, _post: POST, _postInfo: postInfo };
+})();
