@@ -408,6 +408,12 @@
       </div>`;
   }
 
+  // Live and finished games open a box score when tapped (boxscore.js handles the click).
+  const hasBox = (g) => g.state === "in" || g.state === "post";
+  const boxAttrs = (g) => (hasBox(g) && g.home && g.away
+    ? ` data-game="${esc(g.id)}" tabindex="0" role="button" aria-label="Box score, ${esc(g.away.name)} at ${esc(g.home.name)}"` : "");
+  const boxChev = (g) => (hasBox(g) ? ` <span class="chev" aria-hidden="true">›</span>` : "");
+
   function oddsLine(g) {
     const o = g.odds;
     if (g.state !== "pre" || !o) return "";
@@ -434,9 +440,9 @@
         <h3>${longDay(day)}${day === t ? " (today)" : ""}</h3>
         <ul class="games">
           ${gs.map((g) => `
-            <li class="game ${g.state}${counts(g) ? "" : " skip"}">
+            <li class="game ${g.state}${counts(g) ? "" : " skip"}"${boxAttrs(g)}>
               <div class="teams">${teamLine(g.away, g)}${teamLine(g.home, g)}</div>
-              <div class="when">${esc(gameTime(g))}${tvTag(g)}${counts(g) ? "" : "<br><small>Not counted</small>"}</div>
+              <div class="when">${esc(gameTime(g))}${boxChev(g)}${tvTag(g)}${counts(g) ? "" : "<br><small>Not counted</small>"}</div>
               ${oddsLine(g)}
             </li>`).join("")}
         </ul>
@@ -704,7 +710,7 @@
     const games = cupGames();
     const by = (k) => games.filter((g) => cupRound(g) === k);
     const card = (g) => g
-      ? `<div class="game match ${g.state}"><div class="teams">${teamLine(g.away, g)}${teamLine(g.home, g)}</div><div class="when">${esc(gameTime(g))}${tvTag(g)}</div>${oddsLine(g)}</div>`
+      ? `<div class="game match ${g.state}"${boxAttrs(g)}><div class="teams">${teamLine(g.away, g)}${teamLine(g.home, g)}</div><div class="when">${esc(gameTime(g))}${boxChev(g)}${tvTag(g)}</div>${oddsLine(g)}</div>`
       : `<div class="game match tbd"><p>TBD</p></div>`;
     const pad = (list, n) => [...list, ...Array(Math.max(0, n - list.length)).fill(null)].slice(0, n);
 
