@@ -360,6 +360,54 @@ body.bx-open { overflow: hidden; }
   .bx-panel { border-bottom: 1px solid var(--line); border-radius: 16px; max-height: 88vh; }
 }
 
+/* signed entry: a +/- button beside the field (phone number pads often have no minus key) */
+.in-sgn { display: flex; gap: 6px; align-items: stretch; }
+.in-sgn input { flex: 1; min-width: 0; }
+.bets .sgn {
+  flex: none; min-width: 52px; border-radius: 10px; border: 1px solid var(--maple); background: transparent;
+  color: var(--maple); font-weight: 700; font-size: 1rem; cursor: pointer; padding: 0 10px;
+}
+.bets .sgn[hidden] { display: none; }
+
+/* result row on "something else" bets: the change itself happens on a confirm screen */
+.bet-result { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 10px; font-size: 0.88rem; }
+.bet-result .rs { color: var(--ink); }
+.bet-result .rs.won { color: var(--win); }
+.bet-result .rs.lost { color: var(--loss); }
+.bets .setres {
+  background: transparent; border: 1px solid var(--line); border-radius: 8px; color: var(--ink);
+  padding: 7px 14px; font-weight: 600; font-size: 0.85rem; cursor: pointer;
+}
+.leg .bet-result { margin-top: 8px; font-size: 0.82rem; }
+
+/* confirm screen */
+.dlg { position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.dlg[hidden] { display: none; }
+.dlg-back { position: absolute; inset: 0; background: rgba(5, 12, 28, 0.78); }
+.dlg-panel {
+  position: relative; width: 100%; max-width: 420px; background: var(--court); border: 1px solid var(--line);
+  border-radius: 16px; padding: 18px 16px 16px; box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+}
+.dlg-title { font: 700 1.5rem/1.15 var(--display); margin: 0; }
+.dlg-sub { margin: 6px 0 0; font-weight: 600; overflow-wrap: anywhere; }
+.dlg-note { margin: 10px 0 0; color: var(--muted); font-size: 0.85rem; }
+.dlg-err { margin: 8px 0 0; color: var(--loss); font-size: 0.85rem; min-height: 1em; }
+.dlg-opts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 14px; }
+.dlg-opts[hidden] { display: none; }
+.dlg-opt {
+  min-height: 52px; border-radius: 12px; border: 2px solid var(--line); background: transparent; color: var(--muted);
+  font-weight: 700; font-size: 1.05rem; cursor: pointer;
+}
+.dlg-opt[aria-checked="true"] { color: var(--court); background: var(--maple); border-color: var(--maple); }
+.dlg-opt.won[aria-checked="true"] { background: var(--win); border-color: var(--win); }
+.dlg-opt.lost[aria-checked="true"] { background: var(--loss); border-color: var(--loss); }
+.dlg-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+.dlg-actions button { min-height: 50px; border-radius: 12px; font-weight: 700; font-size: 1rem; cursor: pointer; }
+.dlg-cancel { background: transparent; border: 1px solid var(--line); color: var(--ink); }
+.dlg-ok { background: var(--maple); border: 0; color: var(--court); }
+.dlg-ok.danger { background: var(--loss); color: #fff; }
+.dlg-ok:disabled { opacity: 0.35; cursor: default; }
+
 /* parlays */
 .bf-legs { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .bf-legs li:not(.empty) { display: flex; align-items: center; gap: 10px; background: var(--court); border-radius: 10px; padding: 8px 10px; }

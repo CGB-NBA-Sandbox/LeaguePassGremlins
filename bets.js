@@ -371,6 +371,103 @@
   let formOpen = false;
   const root = () => (panelEl ? panelEl.querySelector(".bets") : null);
 
+  const RESULT_LABEL = { pending: "Pending", won: "Won", lost: "Lost", push: "Push" };
+  const resultRow = (status, attrs) => `
+      <div class="bet-result"><span class="muted">Result: <b class="rs ${status}">${RESULT_LABEL[status] || "Pending"}</b></span><button type="button" class="setres" ${attrs}>Set result</button></div>`;
+
+  // ---------- confirm screen (used for removing a bet and for setting a result) ----------
+  let dlg = null, dlgState = null;
+  function ensureDlg() {
+    if (dlg) return;
+    dlg = document.createElement("div");
+    dlg.className = "dlg";
+    dlg.hidden = true;
+    dlg.setAttribute("role", "dialog");
+    dlg.setAttribute("aria-modal", "true");
+    dlg.innerHTML = `
+      <div class="dlg-back"></div>
+      <div class="dlg-panel">
+        <h3 class="dlg-title" id="dlgTitle"></h3>
+        <p class="dlg-sub" id="dlgSub"></p>
+        <div class="dlg-opts" id="dlgOpts" role="radiogroup" hidden></div>
+        <p class="dlg-note" id="dlgNote"></p>
+        <p class="dlg-err" id="dlgErr" role="status"></p>
+        <div class="dlg-actions"><button type="button" class="dlg-cancel" id="dlgCancel">Cancel</button><button type="button" class="dlg-ok" id="dlgOk">Confirm</button></div>
+      </div>`;
+    document.body.appendChild(dlg);
+    dlg.querySelector(".dlg-back").onclick = closeDlg;
+    dlg.querySelector("#dlgCancel").onclick = closeDlg;
+    dlg.querySelector("#dlgOpts").addEventListener("click", (e) => {
+      const o = e.target.closest("[data-v]");
+      if (!o || !dlgState) return;
+      dlgState.value = o.dataset.v;
+      paintDlg();
+    });
+    dlg.querySelector("#dlgOk").onclick = async () => {
+      if (!dlgState) return;
+      const st = dlgState, ok = dlg.querySelector("#dlgOk");
+      ok.disabled = true; dlg.querySelector("#dlgErr").textContent = "";
+      try { await st.onConfirm(st.value); closeDlg(); }
+      catch (ex) { dlg.querySelector("#dlgErr").textContent = "That didn't go through. Check your connection and try again."; ok.disabled = false; }
+    };
+    document.addEventListener("keydown", (e) => { if (e.key === "Escape" && dlg && !dlg.hidden) closeDlg(); });
+  }
+  function paintDlg() {
+    const s = dlgState, ok = dlg.querySelector("#dlgOk");
+    dlg.querySelectorAll("[data-v]").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.v === s.value)));
+    ok.textContent = s.okText;
+    ok.classList.toggle("danger", !!s.danger);
+    ok.disabled = !!s.options && s.value === s.current; // a result has to actually change before it can be confirmed
+  }
+  function openDlg(cfg) {
+    ensureDlg();
+    dlgState = { ...cfg, value: cfg.current, opener: document.activeElement };
+    dlg.querySelector("#dlgTitle").textContent = cfg.title;
+    dlg.querySelector("#dlgSub").textContent = cfg.sub || "";
+    dlg.querySelector("#dlgNote").textContent = cfg.note || "";
+    dlg.querySelector("#dlgErr").textContent = "";
+    const opts = dlg.querySelector("#dlgOpts");
+    opts.hidden = !cfg.options;
+    opts.innerHTML = cfg.options ? cfg.options.map((o) => `<button type="button" role="radio" class="dlg-opt ${o.v}" data-v="${o.v}" aria-checked="false">${esc(o.t)}</button>`).join("") : "";
+    dlg.hidden = false;
+    document.body.classList.add("bx-open");
+    paintDlg();
+    dlg.querySelector("#dlgCancel").focus({ preventScroll: true }); // the safe choice is focused first
+  }
+  function closeDlg() {
+    if (!dlg || dlg.hidden) return;
+    dlg.hidden = true;
+    document.body.classList.remove("bx-open");
+    const o = dlgState && dlgState.opener;
+    dlgState = null;
+    if (o && document.contains(o) && o.focus) o.focus({ preventScroll: true });
+  }
+
+  function askRemove(id) {
+    const b = bets.find((x) => x.id === id);
+    if (!b || !backend) return;
+    openDlg({
+      title: "Remove this bet?", sub: `${describe(b).title} · ${b.owner}`,
+      note: "This takes it off the board for everyone, and it can't be undone.",
+      okText: "Remove bet", danger: true, onConfirm: () => backend.remove(id)
+    });
+  }
+  function askResult(id, leg) {
+    const b = bets.find((x) => x.id === id);
+    if (!b || !backend) return;
+    const isLeg = leg != null;
+    const target = isLeg ? (b.legs || [])[leg] : b;
+    if (!target) return;
+    const current = (isLeg ? (b.legStatus || {})[leg] : b.status) || "pending";
+    openDlg({
+      title: "Set the result", sub: `${isLeg ? `Leg ${leg + 1}: ` : ""}${describe(target).title} · ${b.owner}`,
+      note: "Everyone on the site will see this. Pick the result, then confirm.",
+      options: [{ v: "pending", t: "Pending" }, { v: "won", t: "Won" }, { v: "lost", t: "Lost" }, { v: "push", t: "Push" }],
+      current, okText: "Confirm result",
+      onConfirm: (v) => (isLeg ? backend.setLegStatus(id, leg, v) : backend.setStatus(id, v))
+    });
+  }
+
   function cardHTML(b, ev) {
     const d = describe(b), o = ownerByName[b.owner];
     const win = toWin(b);
@@ -384,19 +481,14 @@
     const bar = ev.bar && ev.bar.max > 0
       ? `<div class="bet-bar${ev.bar.invert ? " inv" : ""}" role="img" aria-label="${esc(ev.bar.label)}"><span style="width:${Math.max(2, Math.min(100, (ev.bar.value / ev.bar.max) * 100))}%"></span></div><p class="bet-barlabel">${esc(ev.bar.label)}</p>` : "";
     const when = b.createdAt instanceof Date ? b.createdAt.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: TZ }) : "";
-    const manual = b.type === "custom" ? `
-      <div class="bet-set" role="group" aria-label="Set result">
-        ${["pending", "won", "lost", "push"].map((s) => `<button type="button" data-set="${s}" data-id="${esc(b.id)}" aria-pressed="${(b.status || "pending") === s}">${s[0].toUpperCase() + s.slice(1)}</button>`).join("")}
-      </div>` : "";
+    // Results on "something else" bets are set on a separate confirm screen, so scrolling can't change them by accident.
+    const manual = b.type === "custom" ? resultRow(b.status || "pending", `data-setres="bet" data-id="${esc(b.id)}"`) : "";
     const teamOwner = b.team ? ownerOfTeam(b.team) : null;
     const legs = ev.legs ? `
         <ol class="legs">${ev.legs.map(({ b: lb, ev: le, i }) => {
           const ld = describe(lb);
           const pillCls = le.state === "open" ? le.lean : le.state;
-          const setBtns = lb.type === "custom" ? `
-            <div class="bet-set sm" role="group" aria-label="Set result for leg ${i + 1}">
-              ${["pending", "won", "lost", "push"].map((s) => `<button type="button" data-legset="${s}" data-leg="${i}" data-id="${esc(b.id)}" aria-pressed="${(lb.status || "pending") === s}">${s[0].toUpperCase() + s.slice(1)}</button>`).join("")}
-            </div>` : "";
+          const setBtns = lb.type === "custom" ? resultRow(lb.status || "pending", `data-setres="leg" data-leg="${i}" data-id="${esc(b.id)}"`) : "";
           return `<li class="leg ${le.state}">
             <div class="leg-main">
               <span class="leg-n">${i + 1}</span>
@@ -535,7 +627,9 @@
               <label data-g="team">Team<select id="bfGTeam"><option value="" disabled selected>Pick a game first</option></select></label>
               <label data-g="side" hidden>Pick<select id="bfGSide"><option value="over">Over</option><option value="under">Under</option></select></label>
             </div>
-            <label data-g="line" hidden><span id="bfGLineLbl">Line</span><input id="bfGLine" type="number" inputmode="decimal" step="0.5" placeholder="-5.5"></label>
+            <label data-g="line" hidden><span id="bfGLineLbl">Line</span>
+              <span class="in-sgn"><input id="bfGLine" type="text" inputmode="decimal" autocomplete="off" autocapitalize="off" placeholder="-5.5"><button type="button" class="sgn" id="bfGSgn" data-flip="bfGLine" aria-label="Switch between plus and minus">+/−</button></span>
+            </label>
           </div>
 
           <div class="bf-sec" data-sec="future" hidden>
@@ -561,7 +655,9 @@
 
           <div class="bf-row">
             <label>Stake ($)<input id="bfStake" type="number" inputmode="decimal" min="0" step="1" placeholder="Optional"></label>
-            <label><span id="bfOddsLbl">Odds</span><input id="bfOdds" type="text" inputmode="text" maxlength="8" placeholder="-110"></label>
+            <label><span id="bfOddsLbl">Odds</span>
+              <span class="in-sgn"><input id="bfOdds" type="text" inputmode="decimal" autocomplete="off" autocapitalize="off" maxlength="8" placeholder="-110"><button type="button" class="sgn" data-flip="bfOdds" aria-label="Switch between plus and minus">+/−</button></span>
+            </label>
           </div>
           <label>Note<input id="bfNote" type="text" maxlength="140" placeholder="Optional, like FanDuel or when you bet"></label>
 
@@ -608,6 +704,7 @@
     set('[data-g="team"]', kind !== "total");
     set('[data-g="side"]', kind === "total");
     set('[data-g="line"]', kind !== "ml");
+    set("#bfGSgn", kind === "spread"); // only spreads can be negative
     const lbl = el.querySelector("#bfGLineLbl");
     if (lbl) lbl.textContent = kind === "spread" ? "Your spread for this team (like -5.5 or +3)" : "Your total points line";
     set('[data-f="side"]', val("bfFKind") === "playoffs");
@@ -615,7 +712,12 @@
     el.querySelector("#bfPreview").textContent = r.bet ? describe(r.bet).title : "";
   }
 
-  const num = (id) => { const s = val(id).trim(); return s === "" ? null : Number(s); };
+  // Numbers may carry a sign ("-3.5", "+3.5", or a typographic minus); anything else is invalid.
+  const num = (id) => {
+    const s = val(id).trim().replace("−", "-");
+    if (s === "") return null;
+    return /^[+-]?(\d+\.?\d*|\.\d+)$/.test(s) ? Number(s) : NaN;
+  };
 
   // Read one pick (a single bet, or one leg of a parlay) from the type-specific fields.
   function readLeg(type) {
@@ -765,12 +867,21 @@
       if (f && f.classList.contains("fchip")) { filter = f.dataset.f; update(); return; }
       const rm = e.target.closest("[data-rmleg]");
       if (rm) { legs.splice(Number(rm.dataset.rmleg), 1); syncForm(); return; }
-      const legSet = e.target.closest("[data-legset]");
-      if (legSet && backend) { try { await backend.setLegStatus(legSet.dataset.id, Number(legSet.dataset.leg), legSet.dataset.legset); } catch (ex) { window.alert("Couldn't update that leg."); } return; }
+      // +/- button next to a line or odds field: flips the sign so phones without a minus key can still enter -3.5
+      const flip = e.target.closest("[data-flip]");
+      if (flip) {
+        const inp = q("#" + flip.dataset.flip);
+        let s = inp.value.trim().replace("−", "-");
+        s = s.startsWith("-") ? "+" + s.slice(1) : s.startsWith("+") ? "-" + s.slice(1) : "-" + s;
+        inp.value = s;
+        inp.dispatchEvent(new Event("input", { bubbles: true }));
+        return;
+      }
+      // Setting a result or removing a bet always goes through a confirm screen first.
+      const res = e.target.closest("[data-setres]");
+      if (res) { askResult(res.dataset.id, res.dataset.setres === "leg" ? Number(res.dataset.leg) : null); return; }
       const del = e.target.closest("[data-del]");
-      if (del && backend) { if (window.confirm("Remove this bet?")) { try { await backend.remove(del.dataset.del); } catch (ex) { window.alert("Couldn't remove that bet."); } } return; }
-      const set = e.target.closest("[data-set]");
-      if (set && backend) { try { await backend.setStatus(set.dataset.id, set.dataset.set); } catch (ex) { window.alert("Couldn't update that bet."); } }
+      if (del) askRemove(del.dataset.del);
     });
     syncForm();
   }
